@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .font-urdu {
+    font-family: 'Noto Sans Arabic', system-ui, -apple-system, sans-serif;
+  }
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
+@media print {
+  header, #intake-form-container, #denomination-counter, button, input[type="date"], #search-transactions {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+  }
+
+  #spreadsheet-ledger {
+    border: none !important;
+    box-shadow: none !important;
+  }
+}

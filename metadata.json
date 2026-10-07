@@ -1,0 +1,6 @@
+{
+  "name": "Daily Cash Book & Sales Ledger",
+  "description": "Real-time cash in and cash out sales tracker with instant multi-tab Excel (.xlsx) download, denomination counter, and Pakistani Rupee (PKR) ledger.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
