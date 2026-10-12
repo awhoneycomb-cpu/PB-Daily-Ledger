@@ -846,14 +846,14 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                 return (
                   <tr 
                     key={t.id} 
-                    onDoubleClick={() => setEditingTransaction(t)}
-                    className={`hover:bg-amber-100/30 transition-colors cursor-pointer group ${
+                    onClick={() => setEditingTransaction(t)}
+                    className={`hover:bg-amber-100/35 transition-colors cursor-pointer group ${
                       t.type === 'cash_in' ? 'bg-emerald-50/15' : 'bg-amber-50/15'
                     }`}
-                    title="Double-click to edit entry"
+                    title="Click row or Edit button to edit this entry"
                   >
                     <td className="py-2 px-3 text-stone-400 font-mono">{globalIndex}</td>
-                    <td className="py-2 px-3 whitespace-nowrap text-stone-600">
+                    <td className="py-2 px-3 whitespace-nowrap text-stone-600" onClick={e => e.stopPropagation()}>
                       {onUpdateTransaction ? (
                         <div className="flex items-center gap-1">
                           <input
@@ -864,10 +864,20 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                                 onUpdateTransaction(t.id, { date: e.target.value });
                               }
                             }}
-                            className="bg-transparent hover:bg-stone-200/70 focus:bg-white border border-transparent hover:border-stone-300 focus:border-emerald-600 rounded px-1 py-0.5 font-semibold text-stone-800 text-xs cursor-pointer outline-hidden transition-colors"
-                            title="Click to change date of this entry"
+                            className="bg-stone-50 hover:bg-white focus:bg-white border border-stone-200 hover:border-emerald-400 focus:border-emerald-600 rounded px-1.5 py-0.5 font-semibold text-stone-800 text-xs cursor-pointer outline-hidden transition-colors"
+                            title="Click to change date"
                           />
-                          <span className="text-stone-400 text-[11px]">{t.time}</span>
+                          <input
+                            type="time"
+                            value={t.time || ''}
+                            onChange={(e) => {
+                              if (onUpdateTransaction) {
+                                onUpdateTransaction(t.id, { time: e.target.value });
+                              }
+                            }}
+                            className="bg-transparent hover:bg-white border border-transparent hover:border-stone-300 rounded px-1 py-0.5 text-stone-500 hover:text-stone-900 text-[11px] cursor-pointer"
+                            title="Click to change time"
+                          />
                         </div>
                       ) : (
                         <>
@@ -1002,66 +1012,86 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                         '-'
                       )}
                     </td>
-                    <td className="py-2 px-3 whitespace-nowrap">
+                    <td className="py-2 px-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                       {t.transferDestination === 'bank' || (t.category?.includes('Bank') && t.transferSource === 'safe') ? (
                         <span className="text-blue-700 font-semibold text-[11px] bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
                           Bank Deposit
                         </span>
-                      ) : t.type === 'cash_in' && t.paymentMode === 'online' ? (
-                        <span className="text-rose-600 font-bold bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded text-[10px]">
-                          Online Transfer
-                        </span>
                       ) : (
-                        <span className="text-stone-600 text-[11px]">Cash</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onUpdateTransaction) {
+                              onUpdateTransaction(t.id, { paymentMode: t.paymentMode === 'online' ? 'cash' : 'online' });
+                            }
+                          }}
+                          className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors cursor-pointer inline-flex items-center gap-1 ${
+                            t.paymentMode === 'online'
+                              ? 'text-rose-700 bg-rose-50 border-rose-300 hover:bg-rose-100'
+                              : 'text-stone-700 bg-stone-100 border-stone-300 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300'
+                          }`}
+                          title="Click to toggle Cash vs Online"
+                        >
+                          {t.paymentMode === 'online' ? '💳 Online' : '💵 Cash'}
+                        </button>
                       )}
                     </td>
-                    <td className="py-2 px-3 text-stone-800 max-w-xs truncate">
-                      {t.isRefund ? (
-                        <span className="inline-flex items-center gap-1 text-stone-900 font-medium">
-                          <span className="text-amber-700 font-bold text-xs">↩</span>
-                          {t.description}
+                    <td className="py-2 px-3 text-stone-800 max-w-xs">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="truncate">
+                          {t.isRefund ? (
+                            <span className="inline-flex items-center gap-1 text-stone-900 font-medium">
+                              <span className="text-amber-700 font-bold text-xs">↩</span>
+                              {t.description}
+                            </span>
+                          ) : (t.isInternalTransfer || isInternalTransferTransaction(t)) ? (
+                            <span className="inline-flex items-center gap-1 text-stone-900 font-medium">
+                              <span className="text-indigo-600 font-bold text-xs">⇄</span>
+                              {t.description}
+                            </span>
+                          ) : (
+                            t.description
+                          )}
                         </span>
-                      ) : (t.isInternalTransfer || isInternalTransferTransaction(t)) ? (
-                        <span className="inline-flex items-center gap-1 text-stone-900 font-medium">
-                          <span className="text-indigo-600 font-bold text-xs">⇄</span>
-                          {t.description}
+                        <span className="opacity-0 group-hover:opacity-100 text-[10px] text-emerald-700 font-semibold shrink-0">
+                          ✏️ Edit
                         </span>
-                      ) : (
-                        t.description
-                      )}
+                      </div>
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-bold">
                       <span className={t.type === 'cash_in' ? 'text-emerald-700' : 'text-amber-700'}>
                         {t.type === 'cash_in' ? '+' : '-'}{formatPKR(t.amount)}
                       </span>
                     </td>
-                    <td className="py-2 px-2 text-center">
+                    <td className="py-2 px-2 text-center" onClick={e => e.stopPropagation()}>
                       <button
                         type="button"
                         onClick={() => onToggleVerified(t.id)}
-                        className={`w-5 h-5 rounded-md inline-flex items-center justify-center text-xs font-bold transition-colors ${
+                        className={`w-5 h-5 rounded-md inline-flex items-center justify-center text-xs font-bold transition-colors cursor-pointer ${
                           t.verified ? 'text-emerald-700 bg-emerald-100' : 'text-stone-300 hover:text-stone-500'
                         }`}
+                        title="Click to toggle verification status"
                       >
                         {t.verified ? '✓' : '-'}
                       </button>
                     </td>
-                    <td className="py-2 px-2 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center gap-1">
+                    <td className="py-2 px-2 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-center gap-1.5">
                         <button
                           type="button"
                           id={`btn-edit-transaction-${t.id}`}
                           onClick={() => setEditingTransaction(t)}
-                          className="p-1.5 rounded-md text-stone-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
-                          title="Edit entry"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors cursor-pointer shadow-2xs"
+                          title="Click to edit entry (category, party, amount, date, etc.)"
                         >
-                          <Pencil className="w-3.5 h-3.5" />
+                          <Pencil className="w-3 h-3 text-emerald-700" />
+                          <span>Edit</span>
                         </button>
                         <button
                           type="button"
                           id={`btn-delete-transaction-${t.id}`}
                           onClick={() => onDeleteTransaction(t.id)}
-                          className="p-1.5 rounded-md text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                          className="p-1 rounded-md text-stone-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors cursor-pointer"
                           title="Delete entry"
                         >
                           <Trash2 className="w-3.5 h-3.5" />

@@ -563,21 +563,23 @@ export default function App() {
     for (let i = 0; i < transactions.length; i++) {
       const t = transactions[i];
       // Only count cash entries for the currently selected active working day
-      if (t.date !== selectedDate) continue;
+      if ((t.date || '').trim() !== selectedDate.trim()) continue;
+
+      const numAmount = typeof t.amount === 'number' ? t.amount : (parseFloat(String(t.amount)) || 0);
 
       if (t.type === 'cash_in') {
         inCount++;
         // Physical cash actually entering the register drawer:
         // Must be cash, and not a direct vault deposit
         if (t.paymentMode !== 'online' && t.transferDestination !== 'safe') {
-          physicalIn += t.amount;
+          physicalIn += numAmount;
         }
       } else if (t.type === 'cash_out') {
         outCount++;
         // Physical cash actually leaving the register drawer:
         // Must be cash, and must NOT be a direct outflow from the safe vault (like safe-to-bank)
         if (t.paymentMode !== 'online' && t.transferSource !== 'safe') {
-          physicalOut += t.amount;
+          physicalOut += numAmount;
         }
       }
     }
@@ -591,8 +593,8 @@ export default function App() {
   }, [transactions, selectedDate]);
 
   // 3. Theoretical Physical Cash In Drawer (The Live Cash Register Value for the active day):
-  // Formula: Today Opening Float + Physical Cash Received in Drawer - Physical Cash Disbursed from Drawer - Unfinalized Pending Transfer
-  const expectedPhysicalDrawer = currentDayOpeningCash + totalPhysicalCashIn - totalPhysicalCashOut - safeTransferAmount;
+  // Formula: Morning Opening Float + Physical Cash Received in Drawer - Physical Cash Disbursed from Drawer
+  const expectedPhysicalDrawer = currentDayOpeningCash + totalPhysicalCashIn - totalPhysicalCashOut;
 
   // 4. Safe (Vault) Calculations & Actions
   const totalVaultDeposits = useMemo(() => vaultDeposits.reduce((acc, d) => acc + d.amount, 0), [vaultDeposits]);

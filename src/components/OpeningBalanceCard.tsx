@@ -163,20 +163,37 @@ export const OpeningBalanceCard: React.FC<OpeningBalanceCardProps> = ({
       </div>
 
       {/* Live Balance Summary Calculation */}
-      <div className="p-3.5 bg-emerald-50/60 border border-emerald-200/80 rounded-xl text-xs space-y-2">
+      <div className="p-3.5 bg-emerald-50/60 border border-emerald-200/80 rounded-xl text-xs space-y-1.5">
         <div className="flex items-center justify-between text-stone-600">
           <span>Starting Float:</span>
           <strong className="font-mono text-stone-900">{formatPKR(openingCash)}</strong>
         </div>
         <div className="flex items-center justify-between text-stone-600">
-          <span>Today&apos;s Net Physical Flow:</span>
+          <span className="flex items-center gap-1 text-[11px]">
+            <span className="text-emerald-700 font-bold">+</span>
+            <span>Drawer Cash In (Sales & Injections):</span>
+          </span>
+          <strong className="font-mono text-emerald-700">+{formatPKR(todayCashIn)}</strong>
+        </div>
+        <div className="flex items-center justify-between text-stone-600">
+          <span className="flex items-center gap-1 text-[11px]">
+            <span className="text-amber-700 font-bold">-</span>
+            <span>Drawer Cash Out (Expenses & Transfers):</span>
+          </span>
+          <strong className="font-mono text-amber-800">-{formatPKR(todayCashOut)}</strong>
+        </div>
+        <div className="flex items-center justify-between text-stone-600 pt-1 border-t border-emerald-200/60 text-[11px]">
+          <span>Net Drawer Flow:</span>
           <strong className={`font-mono ${netPhysicalFlow >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
             {netPhysicalFlow >= 0 ? '+' : ''}{formatPKR(netPhysicalFlow)}
           </strong>
         </div>
         <div className="pt-2 border-t border-emerald-200 flex items-center justify-between font-bold text-stone-900">
-          <span>Expected Cash in Register:</span>
-          <span className="font-mono text-sm text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-300">
+          <div>
+            <span className="block text-xs">Expected Register Cash:</span>
+            <span className="block text-[10px] text-stone-500 font-normal">Float + In - Out</span>
+          </div>
+          <span className="font-mono text-sm text-emerald-800 bg-white px-2.5 py-1 rounded-lg border border-emerald-300 shadow-2xs font-bold">
             {formatPKR(expectedDrawerCash)}
           </span>
         </div>

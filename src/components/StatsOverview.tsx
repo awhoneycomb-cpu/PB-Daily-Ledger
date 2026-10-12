@@ -42,6 +42,13 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
 }) => {
   const [isEditingOpening, setIsEditingOpening] = useState<boolean>(false);
   const [tempOpening, setTempOpening] = useState<string>(String(openingCash || 0));
+  const [statScope, setStatScope] = useState<'today' | 'all'>('today');
+
+  // Filter transactions according to selected scope (Today's active date vs All recorded history)
+  const scopedTransactions = useMemo(() => {
+    if (statScope === 'all') return transactions;
+    return transactions.filter(t => (t.date || '').trim() === selectedDate.trim());
+  }, [transactions, statScope, selectedDate]);
 
   // High-performance single-pass calculations isolating sales/expenses from safe transfers
   const {
@@ -62,7 +69,9 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
     totalSafeHandovers,
     totalBankDeposits,
     calculatedExpectedDrawer,
-    netOperatingFlow
+    netOperatingFlow,
+    drawerCashIn,
+    drawerCashOut
   } = useMemo(() => {
     const ins: Transaction[] = [];
     const outs: Transaction[] = [];
@@ -88,61 +97,63 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
     let drawerCashIn = 0;
     let drawerCashOut = 0;
 
-    for (let i = 0; i < transactions.length; i++) {
-      const t = transactions[i];
+    for (let i = 0; i < scopedTransactions.length; i++) {
+      const t = scopedTransactions[i];
+      const amt = typeof t.amount === 'number' ? t.amount : (parseFloat(String(t.amount)) || 0);
       const isTransfer = t.isInternalTransfer || (t.category?.toLowerCase().includes('internal transfer'));
 
       if (t.type === 'cash_in') {
         ins.push(t);
         if (isTransfer) {
-          safeInjections += t.amount;
+          safeInjections += amt;
           if (t.paymentMode !== 'online') {
-            drawerCashIn += t.amount;
+            drawerCashIn += amt;
           }
         } else {
           salesTx.push(t);
-          grossSales += t.amount;
+          grossSales += amt;
           if (t.paymentMode === 'online') {
-            onlineSales += t.amount;
+            onlineSales += amt;
           } else {
-            physicalSales += t.amount;
-            drawerCashIn += t.amount;
+            physicalSales += amt;
+            drawerCashIn += amt;
           }
         }
       } else if (t.type === 'cash_out') {
         outs.push(t);
         if (isTransfer) {
           if (t.transferDestination === 'bank' || t.description.toLowerCase().includes('bank')) {
-            bankDeposits += t.amount;
+            bankDeposits += amt;
           } else {
-            safeHandovers += t.amount;
+            safeHandovers += amt;
             if (t.paymentMode !== 'online' && t.transferSource !== 'safe') {
-              drawerCashOut += t.amount;
+              drawerCashOut += amt;
             }
           }
         } else {
           expTx.push(t);
-          opExpenses += t.amount;
+          opExpenses += amt;
           const mainCat = getMainCashOutCategory(t);
           if (mainCat === 'vendor_payments') {
-            totalVendorPayments += t.amount;
+            totalVendorPayments += amt;
           } else if (mainCat === 'market_payments') {
-            totalMarketPayments += t.amount;
+            totalMarketPayments += amt;
           } else {
-            totalExpensesCategory += t.amount;
+            totalExpensesCategory += amt;
           }
 
           if (t.paymentMode === 'online') {
-            onlineExp += t.amount;
+            onlineExp += amt;
           } else {
-            physicalExp += t.amount;
-            drawerCashOut += t.amount;
+            physicalExp += amt;
+            drawerCashOut += amt;
           }
         }
       }
     }
 
-    const drawerCalc = openingCash + drawerCashIn - drawerCashOut - safeTransferAmount;
+    // Accurate Cash Drawer formula: Opening Float + Drawer Cash In - Drawer Cash Out
+    const drawerCalc = openingCash + drawerCashIn - drawerCashOut;
     const net = grossSales - opExpenses;
 
     return {
@@ -163,9 +174,11 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
       totalSafeHandovers: safeHandovers,
       totalBankDeposits: bankDeposits,
       calculatedExpectedDrawer: drawerCalc,
-      netOperatingFlow: net
+      netOperatingFlow: net,
+      drawerCashIn,
+      drawerCashOut
     };
-  }, [transactions, openingCash, safeTransferAmount]);
+  }, [scopedTransactions, openingCash]);
 
   const handleSaveOpening = () => {
     const parsed = Math.max(0, parseFloat(tempOpening) || 0);
@@ -173,10 +186,49 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
     setIsEditingOpening(false);
   };
 
-  const finalDrawerValue = expectedDrawerCash !== undefined ? expectedDrawerCash : calculatedExpectedDrawer;
+  // If in 'today' scope, use expectedDrawerCash if passed from App, otherwise calculatedExpectedDrawer
+  const finalDrawerValue = statScope === 'today' && expectedDrawerCash !== undefined 
+    ? expectedDrawerCash 
+    : calculatedExpectedDrawer;
 
   return (
     <div id="stats-overview-area" className="mb-6 space-y-4">
+      {/* Scope Switcher Bar: Today's Active Register vs All Recorded History */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-stone-700">Analytics Scope:</span>
+          <div className="inline-flex p-0.5 bg-stone-200/80 rounded-lg text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setStatScope('today')}
+              className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                statScope === 'today'
+                  ? 'bg-white text-stone-900 shadow-2xs font-bold'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              📅 Today ({selectedDate})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatScope('all')}
+              className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                statScope === 'all'
+                  ? 'bg-white text-stone-900 shadow-2xs font-bold'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              🌐 All-Time History ({transactions.length})
+            </button>
+          </div>
+        </div>
+        <span className="text-[11px] text-stone-500">
+          {statScope === 'today' 
+            ? `Showing real-time figures for active day (${selectedDate})` 
+            : `Showing cumulative totals across all ${transactions.length} entries`}
+        </span>
+      </div>
+
       {/* 4 Core Real-Time KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
         {/* 1. Total Sales / Cash In */}
