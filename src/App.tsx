@@ -9,9 +9,24 @@ import { TransactionFilterBar, FilterState } from './components/TransactionFilte
 import { ClearConfirmModal } from './components/ClearConfirmModal';
 import { StartNewDayModal } from './components/StartNewDayModal';
 import { NotificationToast, ToastMessage } from './components/NotificationToast';
-import { Transaction, VaultDeposit, isInternalTransferTransaction } from './types';
+import { DataRecoveryModal } from './components/DataRecoveryModal';
+import { Calendar, Database, AlertCircle, RefreshCw, Eye } from 'lucide-react';
+import { Transaction, VaultDeposit, isInternalTransferTransaction, getMainCashOutCategory } from './types';
 import { INITIAL_STAFF_COUNTERS } from './data/sampleLedger';
 import { exportToExcel } from './utils/exportSpreadsheet';
+import {
+  subscribeToTransactions,
+  subscribeToVaultDeposits,
+  subscribeToSettings,
+  saveTransactionToCloud,
+  deleteTransactionFromCloud,
+  updateTransactionInCloud,
+  saveVaultDepositToCloud,
+  deleteVaultDepositFromCloud,
+  saveSettingsToCloud,
+  uploadLocalDataToCloud,
+  testFirebaseConnection
+} from './services/firebase';
 
 // Helper to get local YYYY-MM-DD
 const getLocalDateString = () => {
@@ -22,80 +37,26 @@ const getLocalDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-// Immediate cleanup of any previous demo data from browser storage
+// Non-destructive auto-snapshot: preserves a safe copy of stored data
 (() => {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
-      // Remove old sample trigger keys
-      localStorage.removeItem('sample_data_loaded_v3');
-      localStorage.removeItem('sample_data_loaded_v2');
-      localStorage.removeItem('sample_data_loaded');
-
-      // Purge demo date if it was set to the sample date
-      const savedDate = localStorage.getItem('daily_ledger_date');
-      if (savedDate === '2026-09-05') {
-        localStorage.removeItem('daily_ledger_date');
+      const current = localStorage.getItem('daily_ledger_transactions');
+      if (current && current.length > 2 && current !== '[]') {
+        localStorage.setItem('daily_ledger_backup_snapshot', current);
       }
-
-      // Purge demo transactions if saved in localStorage
-      const savedTx = localStorage.getItem('daily_ledger_transactions');
-      if (savedTx) {
-        try {
-          const parsed: Transaction[] = JSON.parse(savedTx);
-          // Keep only real user entries (tx_...) and remove any demo entries (in-*, out-*)
-          // Also auto-repair any regular expense that was mistakenly given transferSource: 'drawer' or isInternalTransfer
-          const realTx = parsed.filter(t => !t.id.startsWith('in-') && !t.id.startsWith('out-')).map(t => {
-            if (t.type === 'cash_out') {
-              const cat = (t.category || '').toLowerCase();
-              const desc = (t.description || '').toLowerCase();
-              const isActualTransfer = 
-                cat.includes('transfer to safe') || 
-                cat.includes('safe vault') || 
-                cat.includes('bank deposit') || 
-                cat.includes('internal transfer') ||
-                t.transferDestination === 'safe' || 
-                t.transferDestination === 'bank' ||
-                desc.includes('drawer to safe') ||
-                desc.includes('safe to bank') ||
-                desc.includes('deposit to bank');
-
-              if (!isActualTransfer && (t.isInternalTransfer || t.transferSource === 'drawer')) {
-                return {
-                  ...t,
-                  isInternalTransfer: false,
-                  transferSource: undefined,
-                  transferDestination: undefined
-                };
-              }
-            }
-            if (t.description && t.description.includes('Meezan Bank')) {
-              t.description = t.description.replace(/Meezan Bank/g, 'Askari Bank Ltd.');
-            }
-            if (t.notes && t.notes.includes('Meezan Bank')) {
-              t.notes = t.notes.replace(/Meezan Bank/g, 'Askari Bank Ltd.');
-            }
-            return t;
-          });
-          localStorage.setItem('daily_ledger_transactions', JSON.stringify(realTx));
-        } catch {
-          localStorage.removeItem('daily_ledger_transactions');
-        }
-      }
-
-      // Purge any legacy denomination storage
-      localStorage.removeItem('daily_ledger_denominations');
     }
   } catch (e) {
-    console.error('Storage cleanup note:', e);
+    console.warn('Backup snapshot note:', e);
   }
 })();
 
 export default function App() {
-  // Current Date State (defaults to today's local date)
+  // Current Date State (defaults to saved date if present, or today)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     try {
       const savedDate = localStorage.getItem('daily_ledger_date');
-      if (savedDate && savedDate !== '2026-09-05') {
+      if (savedDate) {
         return savedDate;
       }
       return getLocalDateString();
@@ -127,45 +88,63 @@ export default function App() {
 
   const [isStartNewDayOpen, setIsStartNewDayOpen] = useState<boolean>(false);
 
-  // Real-time Transactions: Starts completely clean with NO demo data
+  // Real-time Transactions: Safely loads ALL transactions from storage or backup snapshot
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     try {
-      const saved = localStorage.getItem('daily_ledger_transactions');
+      let saved = localStorage.getItem('daily_ledger_transactions');
+      if (!saved || saved === '[]') {
+        saved = localStorage.getItem('daily_ledger_backup_snapshot') || localStorage.getItem('daily_ledger_transactions_safe_backup');
+      }
       if (saved) {
-        const parsed: Transaction[] = JSON.parse(saved);
-        // Only load user-created transactions, never demo transactions
-        return parsed.filter(t => !t.id.startsWith('in-') && !t.id.startsWith('out-')).map(t => {
-          if (t.type === 'cash_out') {
-            const cat = (t.category || '').toLowerCase();
-            const desc = (t.description || '').toLowerCase();
-            const isActualTransfer = 
-              cat.includes('transfer to safe') || 
-              cat.includes('safe vault') || 
-              cat.includes('bank deposit') || 
-              cat.includes('internal transfer') ||
-              t.transferDestination === 'safe' || 
-              t.transferDestination === 'bank' ||
-              desc.includes('drawer to safe') ||
-              desc.includes('safe to bank') ||
-              desc.includes('deposit to bank');
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((t: any, idx: number) => {
+            const validId = t && t.id ? String(t.id) : `tx_${Date.now()}_${idx}`;
+            let desc = t?.description || '';
+            let notes = t?.notes || '';
+            if (desc.includes('Meezan Bank')) desc = desc.replace(/Meezan Bank/g, 'Askari Bank Ltd.');
+            if (notes.includes('Meezan Bank')) notes = notes.replace(/Meezan Bank/g, 'Askari Bank Ltd.');
 
-            if (!isActualTransfer && (t.isInternalTransfer || t.transferSource === 'drawer')) {
-              return {
-                ...t,
-                isInternalTransfer: false,
-                transferSource: undefined,
-                transferDestination: undefined
-              };
+            const cleaned: Transaction = {
+              ...t,
+              id: validId,
+              description: desc,
+              notes: notes,
+              amount: typeof t?.amount === 'number' ? t.amount : (parseFloat(t?.amount) || 0)
+            };
+
+            // Fix regular expenses that were mistakenly flagged as transfers
+            if (cleaned.type === 'cash_out') {
+              const cat = (cleaned.category || '').toLowerCase();
+              const d = desc.toLowerCase();
+              const isActualTransfer = 
+                cat.includes('transfer to safe') || 
+                cat.includes('safe vault') || 
+                cat.includes('bank deposit') || 
+                cat.includes('internal transfer') ||
+                cat.includes('safe transfer') ||
+                cat.includes('safe to individual') ||
+                cat.includes('individual') ||
+                cleaned.transferDestination === 'safe' || 
+                cleaned.transferDestination === 'bank' ||
+                cleaned.transferDestination === 'individual' ||
+                cleaned.transferSource === 'safe' ||
+                d.includes('drawer to safe') ||
+                d.includes('safe to bank') ||
+                d.includes('safe to individual') ||
+                d.includes('safe cash to') ||
+                d.includes('handover to') ||
+                d.includes('deposit to bank');
+
+              if (!isActualTransfer && (cleaned.isInternalTransfer || cleaned.transferSource === 'drawer')) {
+                cleaned.isInternalTransfer = false;
+                cleaned.transferSource = undefined;
+                cleaned.transferDestination = undefined;
+              }
             }
-          }
-          if (t.description && t.description.includes('Meezan Bank')) {
-            t.description = t.description.replace(/Meezan Bank/g, 'Askari Bank Ltd.');
-          }
-          if (t.notes && t.notes.includes('Meezan Bank')) {
-            t.notes = t.notes.replace(/Meezan Bank/g, 'Askari Bank Ltd.');
-          }
-          return t;
-        });
+            return cleaned;
+          });
+        }
       }
     } catch (e) {
       console.error('Error reading transactions from localStorage', e);
@@ -178,7 +157,10 @@ export default function App() {
     try {
       const saved = localStorage.getItem('daily_ledger_staff');
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
       }
     } catch (e) {
       console.error('Error reading staff from localStorage', e);
@@ -209,7 +191,10 @@ export default function App() {
   const [vaultDeposits, setVaultDeposits] = useState<VaultDeposit[]>(() => {
     try {
       const saved = localStorage.getItem('daily_ledger_vault_deposits');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch (e) {
       console.error('Error reading vault deposits from localStorage', e);
     }
@@ -218,15 +203,179 @@ export default function App() {
 
   // Modal and Toast States
   const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
+  const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState<boolean>(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToast({ id: String(Date.now()), message, type });
   };
 
-  // Save to LocalStorage on changes
+  // Sync settings when safe balance or staff changes
+  const syncSettingsToCloud = (overrides?: Partial<{
+    safeRunningBalance: number;
+    safeTransferAmount: number;
+    openingCashByDate: Record<string, number>;
+    staffList: string[];
+  }>) => {
+    saveSettingsToCloud({
+      safeRunningBalance,
+      safeTransferAmount,
+      openingCashByDate,
+      staffList,
+      ...overrides
+    }).catch(console.error);
+  };
+
+  // Recovery handlers
+  const handleRestoreTransactionsFromRecovery = (txs: Transaction[]) => {
+    setTransactions(prev => {
+      const map = new Map<string, Transaction>();
+      prev.forEach(t => { if (t && t.id) map.set(t.id, t); });
+      txs.forEach((t, idx) => {
+        const id = t.id || `tx_rec_${Date.now()}_${idx}`;
+        map.set(id, { ...t, id });
+      });
+      const merged = Array.from(map.values());
+      uploadLocalDataToCloud(merged, vaultDeposits, {
+        safeRunningBalance,
+        safeTransferAmount,
+        openingCashByDate,
+        staffList
+      }).catch(console.error);
+      return merged;
+    });
+    showToast(`Restored ${txs.length} transactions and synced to cloud!`, 'success');
+  };
+
+  const handleRestoreFullBackupFromRecovery = (data: any) => {
+    if (Array.isArray(data.transactions)) {
+      setTransactions(data.transactions);
+      if (typeof data.openingCash === 'number') setOpeningCash(data.openingCash);
+      if (typeof data.safeRunningBalance === 'number') setSafeRunningBalance(data.safeRunningBalance);
+      if (typeof data.safeTransferAmount === 'number') setSafeTransferAmount(data.safeTransferAmount);
+      if (Array.isArray(data.vaultDeposits)) setVaultDeposits(data.vaultDeposits);
+      if (data.date) setSelectedDate(data.date);
+      if (Array.isArray(data.staffList)) setStaffList(data.staffList);
+      uploadLocalDataToCloud(data.transactions, data.vaultDeposits || [], {
+        safeRunningBalance: data.safeRunningBalance ?? safeRunningBalance,
+        safeTransferAmount: data.safeTransferAmount ?? safeTransferAmount,
+        openingCashByDate,
+        staffList: data.staffList ?? staffList
+      }).catch(console.error);
+      showToast(`Restored full ledger backup and synced to cloud!`, 'success');
+    }
+  };
+
+  // Real-time Cloud Synchronization (Firebase Firestore across Phone, Tablet, PC)
+  useEffect(() => {
+    let unsubTransactions: (() => void) | undefined;
+    let unsubVault: (() => void) | undefined;
+    let unsubSettings: (() => void) | undefined;
+
+    testFirebaseConnection().then(connected => {
+      if (connected) setIsCloudSynced(true);
+    });
+
+    try {
+      unsubTransactions = subscribeToTransactions((cloudTx) => {
+        setIsCloudSynced(true);
+        setTransactions(prev => {
+          // Non-destructive merge: keep all local and merge with cloud by ID
+          const map = new Map<string, Transaction>();
+          prev.forEach(t => { if (t && t.id) map.set(t.id, t); });
+          (cloudTx || []).forEach(t => { if (t && t.id) map.set(t.id, t); });
+          const merged = Array.from(map.values());
+          merged.sort((a, b) => {
+            const dtA = `${a.date} ${a.time || '00:00'}`;
+            const dtB = `${b.date} ${b.time || '00:00'}`;
+            return dtB.localeCompare(dtA);
+          });
+
+          // Upload local transactions that are not in cloud yet
+          const missingInCloud = prev.filter(p => !cloudTx.some(c => c.id === p.id));
+          if (missingInCloud.length > 0) {
+            uploadLocalDataToCloud(missingInCloud, [], {}).catch(console.error);
+          }
+          return merged;
+        });
+      }, (err) => {
+        console.error('Transactions sync error:', err);
+      });
+
+      unsubVault = subscribeToVaultDeposits((cloudVault) => {
+        setVaultDeposits(prev => {
+          const map = new Map<string, VaultDeposit>();
+          prev.forEach(d => { if (d && d.id) map.set(d.id, d); });
+          (cloudVault || []).forEach(d => { if (d && d.id) map.set(d.id, d); });
+          const merged = Array.from(map.values());
+          merged.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+          const missingInCloud = prev.filter(p => !cloudVault.some(c => c.id === p.id));
+          if (missingInCloud.length > 0) {
+            uploadLocalDataToCloud([], missingInCloud, {}).catch(console.error);
+          }
+          return merged;
+        });
+      }, (err) => {
+        console.error('Vault deposits sync error:', err);
+      });
+
+      unsubSettings = subscribeToSettings((settings) => {
+        if (settings) {
+          if (typeof settings.safeRunningBalance === 'number' && settings.safeRunningBalance > 0) {
+            setSafeRunningBalance(settings.safeRunningBalance);
+          }
+          if (typeof settings.safeTransferAmount === 'number') {
+            setSafeTransferAmount(settings.safeTransferAmount);
+          }
+          if (settings.openingCashByDate && typeof settings.openingCashByDate === 'object') {
+            setOpeningCashByDate(prev => ({ ...prev, ...settings.openingCashByDate }));
+          }
+          if (Array.isArray(settings.staffList) && settings.staffList.length > 0) {
+            setStaffList(settings.staffList);
+          }
+        }
+      }, (err) => {
+        console.error('Settings sync error:', err);
+      });
+    } catch (e) {
+      console.error('Error establishing Firestore listeners:', e);
+    }
+
+    return () => {
+      if (unsubTransactions) unsubTransactions();
+      if (unsubVault) unsubVault();
+      if (unsubSettings) unsubSettings();
+    };
+  }, []);
+
+  const handleManualSyncToCloud = async () => {
+    setIsSyncing(true);
+    try {
+      await uploadLocalDataToCloud(transactions, vaultDeposits, {
+        safeRunningBalance,
+        safeTransferAmount,
+        openingCashByDate,
+        staffList
+      });
+      setIsCloudSynced(true);
+      showToast(`Cloud Sync Active! Synced ${transactions.length} records across all devices.`, 'success');
+    } catch (err: any) {
+      console.error('Manual sync failed:', err);
+      showToast('Cloud sync notice: ' + (err?.message || 'Check connection'), 'error');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Save to LocalStorage on changes with safe backup copy
   useEffect(() => {
     localStorage.setItem('daily_ledger_transactions', JSON.stringify(transactions));
+    if (transactions.length > 0) {
+      localStorage.setItem('daily_ledger_backup_snapshot', JSON.stringify(transactions));
+    }
   }, [transactions]);
 
   useEffect(() => {
@@ -265,20 +414,24 @@ export default function App() {
 
   const handleSetOpeningCash = (val: number) => {
     setOpeningCash(val);
-    setOpeningCashByDate(prev => ({
-      ...prev,
+    const updated = {
+      ...openingCashByDate,
       [selectedDate]: val
-    }));
+    };
+    setOpeningCashByDate(updated);
+    syncSettingsToCloud({ openingCashByDate: updated });
   };
 
   const handleStartNewDay = (newDate: string, newOpeningCash: number) => {
     setSelectedDate(newDate);
     setOpeningCash(newOpeningCash);
-    setOpeningCashByDate(prev => ({
-      ...prev,
+    const updated = {
+      ...openingCashByDate,
       [newDate]: newOpeningCash
-    }));
+    };
+    setOpeningCashByDate(updated);
     setSafeTransferAmount(0);
+    syncSettingsToCloud({ openingCashByDate: updated, safeTransferAmount: 0 });
     setFilters(prev => ({ ...prev, dateScope: 'active_day', startDate: '', endDate: '' }));
     showToast(`Started new day ledger for ${newDate} with Rs. ${newOpeningCash.toLocaleString()} morning float!`, 'success');
   };
@@ -365,8 +518,32 @@ export default function App() {
       // 4. Transaction Type
       if (filters.type === 'cash_in' && t.type !== 'cash_in') return false;
       if (filters.type === 'cash_out' && t.type !== 'cash_out') return false;
+      if (filters.type === 'expenses') {
+        if (t.type !== 'cash_out') return false;
+        if (getMainCashOutCategory(t) !== 'expenses') return false;
+      }
+      if (filters.type === 'vendor_payments') {
+        if (t.type !== 'cash_out') return false;
+        if (getMainCashOutCategory(t) !== 'vendor_payments') return false;
+      }
+      if (filters.type === 'market_payments') {
+        if (t.type !== 'cash_out') return false;
+        if (getMainCashOutCategory(t) !== 'market_payments') return false;
+      }
       if (filters.type === 'online' && (t.type !== 'cash_in' || t.paymentMode !== 'online')) return false;
       if (filters.type === 'internal_transfer' && !isInternalTransferTransaction(t)) return false;
+      if (filters.type === 'safe_to_individual') {
+        const isSafeToInd = t.transferDestination === 'individual' ||
+          (t.transferSource === 'safe' && (
+            (t.category && t.category.toLowerCase().includes('individual')) ||
+            (t.description && (
+              t.description.toLowerCase().includes('handover to') ||
+              t.description.toLowerCase().includes('safe cash to') ||
+              t.description.toLowerCase().includes('safe to individual')
+            ))
+          ));
+        if (!isSafeToInd) return false;
+      }
 
       return true;
     });
@@ -526,6 +703,82 @@ export default function App() {
     showToast(`Deposited Rs. ${amount.toLocaleString()} into ${bankName}! Recorded in ledger.`, 'success');
   };
 
+  // Safe to Individual Cash Transfer (Cash leaves safe vault into an individual person)
+  const handleTransferSafeToIndividual = (
+    amount: number, 
+    recipient: string, 
+    reason: string, 
+    receiptNumber?: string, 
+    notes?: string
+  ) => {
+    if (amount <= 0) return;
+    const totalVault = vaultDeposits.reduce((acc, d) => acc + d.amount, 0);
+    const totalSafeAvailable = (safeRunningBalance || 0) + (safeTransferAmount || 0) + totalVault;
+
+    if (amount > totalSafeAvailable) {
+      showToast(`Cannot transfer Rs. ${amount.toLocaleString()}: Safe balance is only Rs. ${totalSafeAvailable.toLocaleString()}`, 'error');
+      return;
+    }
+
+    const cleanRecipient = recipient.trim() || 'Individual';
+    const cleanReason = reason.trim() || 'Cash Handover from Safe';
+
+    // Deduct smartly across safe funds
+    if (amount <= safeRunningBalance) {
+      setSafeRunningBalance(prev => prev - amount);
+    } else {
+      const remainingAfterRunning = amount - safeRunningBalance;
+      setSafeRunningBalance(0);
+      if (remainingAfterRunning <= safeTransferAmount) {
+        setSafeTransferAmount(prev => Math.max(0, prev - remainingAfterRunning));
+      } else {
+        const remainingAfterTransfer = remainingAfterRunning - safeTransferAmount;
+        setSafeTransferAmount(0);
+        if (remainingAfterTransfer > 0 && vaultDeposits.length > 0) {
+          setVaultDeposits(prev => {
+            let rem = remainingAfterTransfer;
+            const updated: VaultDeposit[] = [];
+            for (const d of prev) {
+              if (rem <= 0) {
+                updated.push(d);
+              } else if (d.amount <= rem) {
+                rem -= d.amount;
+              } else {
+                updated.push({ ...d, amount: d.amount - rem });
+                rem = 0;
+              }
+            }
+            return updated;
+          });
+        }
+      }
+    }
+
+    const desc = `Cash Handover to ${cleanRecipient} (${cleanReason})`;
+
+    // Record as visible transaction in ledger
+    const newTx: Omit<Transaction, 'id' | 'createdAt'> = {
+      date: selectedDate,
+      time: new Date().toTimeString().slice(0, 5),
+      type: 'cash_out',
+      amount,
+      paymentMode: 'online', // Marked as online so physical drawer register float is untouched
+      isInternalTransfer: true,
+      transferSource: 'safe',
+      transferDestination: 'individual',
+      category: 'Safe Transfer (Safe ➔ Individual)',
+      description: desc,
+      salesperson: cleanRecipient,
+      receiptNumber: receiptNumber?.trim() || undefined,
+      biltyNumber: receiptNumber?.trim() || undefined,
+      verified: true,
+      notes: notes?.trim() || `Cash transferred from Safe Vault to ${cleanRecipient} for ${cleanReason}`
+    };
+
+    handleAddTransaction(newTx, true /* skipSafeAdjustment */);
+    showToast(`Transferred Rs. ${amount.toLocaleString()} from Safe to ${cleanRecipient}! Recorded in ledger.`, 'success');
+  };
+
   // Safe to Drawer Replenishment Action (Cash leaves safe vault into register drawer)
   const handleTransferSafeToDrawer = (amount: number, reason?: string) => {
     if (amount <= 0) return;
@@ -624,7 +877,47 @@ export default function App() {
 
   const handleDeductFromSafe = (amount: number): boolean => {
     if (amount <= 0) return false;
-    setSafeRunningBalance(prev => Math.max(0, prev - amount));
+    const totalVault = vaultDeposits.reduce((acc, d) => acc + d.amount, 0);
+    const totalSafeAvailable = (safeRunningBalance || 0) + (safeTransferAmount || 0) + totalVault;
+    if (amount > totalSafeAvailable) {
+      showToast(`Cannot deduct Rs. ${amount.toLocaleString()}: Safe balance is only Rs. ${totalSafeAvailable.toLocaleString()}`, 'error');
+      return false;
+    }
+
+    if (amount <= safeRunningBalance) {
+      const newBal = safeRunningBalance - amount;
+      setSafeRunningBalance(newBal);
+      syncSettingsToCloud({ safeRunningBalance: newBal });
+    } else {
+      const remainingAfterRunning = amount - safeRunningBalance;
+      setSafeRunningBalance(0);
+      if (remainingAfterRunning <= safeTransferAmount) {
+        const newTransfer = Math.max(0, safeTransferAmount - remainingAfterRunning);
+        setSafeTransferAmount(newTransfer);
+        syncSettingsToCloud({ safeRunningBalance: 0, safeTransferAmount: newTransfer });
+      } else {
+        const remainingAfterTransfer = remainingAfterRunning - safeTransferAmount;
+        setSafeTransferAmount(0);
+        if (remainingAfterTransfer > 0 && vaultDeposits.length > 0) {
+          setVaultDeposits(prev => {
+            let rem = remainingAfterTransfer;
+            const updated: VaultDeposit[] = [];
+            for (const d of prev) {
+              if (rem <= 0) {
+                updated.push(d);
+              } else if (d.amount <= rem) {
+                rem -= d.amount;
+              } else {
+                updated.push({ ...d, amount: d.amount - rem });
+                rem = 0;
+              }
+            }
+            return updated;
+          });
+        }
+        syncSettingsToCloud({ safeRunningBalance: 0, safeTransferAmount: 0 });
+      }
+    }
     return true;
   };
 
@@ -635,10 +928,12 @@ export default function App() {
       createdAt: Date.now()
     };
     setVaultDeposits(prev => [newDep, ...prev]);
+    saveVaultDepositToCloud(newDep);
   };
 
   const handleDeleteVaultDeposit = (id: string) => {
     setVaultDeposits(prev => prev.filter(d => d.id !== id));
+    deleteVaultDepositFromCloud(id);
   };
 
   const handleConsolidateVaultDeposits = () => {
@@ -654,16 +949,50 @@ export default function App() {
       createdAt: Date.now()
     };
     setTransactions(prev => [txWithMeta, ...prev]);
+    saveTransactionToCloud(txWithMeta);
 
     // If new staff salesperson is provided and not in staffList, add it automatically
     if (txWithMeta.salesperson && !staffList.includes(txWithMeta.salesperson) && !txWithMeta.isInternalTransfer) {
-      setStaffList(prev => [...prev, txWithMeta.salesperson!]);
+      const updatedStaff = [...staffList, txWithMeta.salesperson!];
+      setStaffList(updatedStaff);
+      syncSettingsToCloud({ staffList: updatedStaff });
     }
 
-    // If this is a drawer-to-safe transfer added via intake form without explicit handler:
+    // If this is a transfer added via intake form without explicit handler:
     if (!skipSafeAdjustment) {
-      if (txWithMeta.type === 'cash_out' && (txWithMeta.transferDestination === 'safe' || txWithMeta.category?.toLowerCase().includes('safe'))) {
-        setSafeRunningBalance(prev => prev + txWithMeta.amount);
+      if (txWithMeta.type === 'cash_out') {
+        const isSafeToIndividual = txWithMeta.transferDestination === 'individual' ||
+          (txWithMeta.transferSource === 'safe' && (
+            (txWithMeta.category && txWithMeta.category.toLowerCase().includes('individual')) ||
+            (txWithMeta.description && (
+              txWithMeta.description.toLowerCase().includes('handover to') ||
+              txWithMeta.description.toLowerCase().includes('safe cash to') ||
+              txWithMeta.description.toLowerCase().includes('safe to individual')
+            ))
+          ));
+
+        const isSafeToBank = txWithMeta.transferSource === 'safe' && txWithMeta.transferDestination === 'bank';
+
+        const isDrawerToSafe = !isSafeToIndividual && !isSafeToBank && (
+          txWithMeta.transferDestination === 'safe' ||
+          (txWithMeta.category && (
+            txWithMeta.category.includes('Transfer to Safe') ||
+            txWithMeta.category.includes('Drawer ➔ Safe')
+          )) ||
+          (txWithMeta.description && txWithMeta.description.toLowerCase().includes('drawer to safe'))
+        );
+
+        if (isSafeToIndividual && txWithMeta.transferSource === 'safe') {
+          // Outflow from safe to individual: deduct from safe
+          const newSafe = Math.max(0, safeRunningBalance - txWithMeta.amount);
+          setSafeRunningBalance(newSafe);
+          syncSettingsToCloud({ safeRunningBalance: newSafe });
+        } else if (isDrawerToSafe) {
+          // Inflow from drawer into safe: credit safe
+          const newSafe = safeRunningBalance + txWithMeta.amount;
+          setSafeRunningBalance(newSafe);
+          syncSettingsToCloud({ safeRunningBalance: newSafe });
+        }
       }
     }
   };
@@ -671,24 +1000,61 @@ export default function App() {
   const handleDeleteTransaction = (id: string) => {
     const tx = transactions.find(t => t.id === id);
     if (tx && (tx.isInternalTransfer || isInternalTransferTransaction(tx))) {
-      if (tx.type === 'cash_in' && (tx.transferSource === 'safe' || tx.description.toLowerCase().includes('safe'))) {
-        // Safe to drawer being removed: return cash back to safe
-        setSafeRunningBalance(prev => prev + tx.amount);
-      } else if (tx.type === 'cash_out' && (tx.transferDestination === 'safe' || tx.category?.toLowerCase().includes('safe') || tx.description.toLowerCase().includes('safe'))) {
-        // Drawer to safe being removed: take cash out of safe back to drawer
-        setSafeRunningBalance(prev => Math.max(0, prev - tx.amount));
-      } else if (tx.type === 'cash_out' && (tx.transferDestination === 'bank' || tx.description.toLowerCase().includes('bank')) && tx.transferSource === 'safe') {
-        // Safe to bank being removed: return cash back into safe
-        setSafeRunningBalance(prev => prev + tx.amount);
+      // 1. Safe to Individual being removed: return disbursed cash back into safe
+      if (
+        tx.type === 'cash_out' &&
+        (tx.transferDestination === 'individual' ||
+         tx.category?.toLowerCase().includes('individual') ||
+         tx.description.toLowerCase().includes('handover to') ||
+         tx.description.toLowerCase().includes('safe cash to') ||
+         tx.description.toLowerCase().includes('safe to individual')) &&
+        tx.transferSource === 'safe'
+      ) {
+        const newSafe = safeRunningBalance + tx.amount;
+        setSafeRunningBalance(newSafe);
+        syncSettingsToCloud({ safeRunningBalance: newSafe });
+      }
+      // 2. Safe to Bank being removed: return cash back into safe
+      else if (
+        tx.type === 'cash_out' &&
+        (tx.transferDestination === 'bank' || tx.description.toLowerCase().includes('bank')) &&
+        tx.transferSource === 'safe'
+      ) {
+        const newSafe = safeRunningBalance + tx.amount;
+        setSafeRunningBalance(newSafe);
+        syncSettingsToCloud({ safeRunningBalance: newSafe });
+      }
+      // 3. Safe to Drawer replenishment being removed: return cash back into safe
+      else if (
+        tx.type === 'cash_in' &&
+        (tx.transferSource === 'safe' || tx.description.toLowerCase().includes('safe to drawer'))
+      ) {
+        const newSafe = safeRunningBalance + tx.amount;
+        setSafeRunningBalance(newSafe);
+        syncSettingsToCloud({ safeRunningBalance: newSafe });
+      }
+      // 4. Drawer to Safe handover being removed: take cash back out of safe into drawer
+      else if (
+        tx.type === 'cash_out' &&
+        (tx.transferDestination === 'safe' ||
+         tx.category?.includes('Transfer to Safe') ||
+         tx.category?.includes('Drawer ➔ Safe') ||
+         tx.description.toLowerCase().includes('drawer to safe'))
+      ) {
+        const newSafe = Math.max(0, safeRunningBalance - tx.amount);
+        setSafeRunningBalance(newSafe);
+        syncSettingsToCloud({ safeRunningBalance: newSafe });
       }
     }
     setTransactions(prev => prev.filter(t => t.id !== id));
+    deleteTransactionFromCloud(id);
   };
 
   const handleUpdateTransaction = (id: string, updates: Partial<Transaction>) => {
     setTransactions(prev =>
       prev.map(t => (t.id === id ? { ...t, ...updates } : t))
     );
+    updateTransactionInCloud(id, updates);
     showToast('Transaction updated successfully.', 'success');
   };
 
@@ -890,6 +1256,10 @@ export default function App() {
         onBackupJson={handleBackupJson}
         onRestoreJson={handleRestoreJson}
         onOpenStartNewDay={() => setIsStartNewDayOpen(true)}
+        isCloudSynced={isCloudSynced}
+        isSyncing={isSyncing}
+        onManualSyncToCloud={handleManualSyncToCloud}
+        onOpenRecovery={() => setIsRecoveryModalOpen(true)}
       />
 
       {/* Main Container */}
@@ -918,8 +1288,9 @@ export default function App() {
               selectedDate={selectedDate}
               cashInCount={cashInCount}
               cashOutCount={cashOutCount}
-              safeRunningBalance={safeRunningBalance}
+              safeRunningBalance={totalSafeCash}
               onDeductFromSafe={handleDeductFromSafe}
+              onTransferSafeToIndividual={handleTransferSafeToIndividual}
             />
           </div>
 
@@ -953,10 +1324,56 @@ export default function App() {
           onTransferSafeToDrawer={handleTransferSafeToDrawer}
           onTransferSafeToBank={handleTransferSafeToBank}
           onTransferDrawerToBank={handleTransferDrawerToBank}
+          onTransferSafeToIndividual={handleTransferSafeToIndividual}
+          staffList={allStaffOptions}
           transactions={transactions}
           onDeleteTransaction={handleDeleteTransaction}
           onShowToast={showToast}
         />
+
+        {/* Helpful Data Notification Banner if entries exist on other dates */}
+        {filteredTransactions.length === 0 && transactions.length > 0 && (
+          <div className="mb-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-800 shrink-0">
+                <Database className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-amber-950">
+                  No records displayed for active date ({selectedDate}), but {transactions.length} record{transactions.length === 1 ? '' : 's'} exist in your ledger!
+                </h4>
+                <p className="text-[11px] text-amber-800 mt-0.5">
+                  Dates found with entries: <strong>{Array.from(new Set(transactions.map(t => t.date))).filter(Boolean).join(', ')}</strong>
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {transactions[0]?.date && transactions[0].date !== selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(transactions[0].date)}
+                  className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                >
+                  📅 Jump to {transactions[0].date}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setFilters(prev => ({ ...prev, dateScope: 'all', startDate: '', endDate: '' }))}
+                className="px-3 py-1.5 bg-stone-900 hover:bg-stone-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+              >
+                👁️ View All Dates ({transactions.length} Entries)
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsRecoveryModalOpen(true)}
+                className="px-3 py-1.5 bg-white border border-amber-400 hover:bg-amber-100 text-amber-950 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+              >
+                🛠️ Data Recovery Center
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Search & Filter Bar above SpreadsheetLedger */}
         <TransactionFilterBar
@@ -1018,6 +1435,25 @@ export default function App() {
         transactionCount={transactions.length}
         openingCash={currentDayOpeningCash}
         onOpenStartNewDay={() => setIsStartNewDayOpen(true)}
+      />
+
+      {/* Comprehensive Data Recovery & Storage Diagnostics Modal */}
+      <DataRecoveryModal
+        isOpen={isRecoveryModalOpen}
+        onClose={() => setIsRecoveryModalOpen(false)}
+        transactions={transactions}
+        vaultDeposits={vaultDeposits}
+        safeRunningBalance={safeRunningBalance}
+        safeTransferAmount={safeTransferAmount}
+        openingCash={currentDayOpeningCash}
+        selectedDate={selectedDate}
+        onSelectDate={setSelectedDate}
+        onViewAllDates={() => setFilters(prev => ({ ...prev, dateScope: 'all', startDate: '', endDate: '' }))}
+        onRestoreTransactions={handleRestoreTransactionsFromRecovery}
+        onRestoreFullBackup={handleRestoreFullBackupFromRecovery}
+        onManualSyncToCloud={handleManualSyncToCloud}
+        isCloudSynced={isCloudSynced}
+        isSyncing={isSyncing}
       />
 
       {/* Non-blocking Notification Toast */}

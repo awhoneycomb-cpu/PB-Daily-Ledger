@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { BookOpenCheck, Calendar, Download, UploadCloud, Save, Trash2, SunMedium, Smartphone, Copy, Check, ExternalLink, X, Laptop } from 'lucide-react';
+import { BookOpenCheck, Calendar, Download, UploadCloud, Save, Trash2, SunMedium, Smartphone, Copy, Check, ExternalLink, X, Laptop, Cloud, RefreshCw, Database } from 'lucide-react';
 
 interface HeaderProps {
   selectedDate: string;
@@ -9,6 +9,10 @@ interface HeaderProps {
   onBackupJson: () => void;
   onRestoreJson: (file: File) => void;
   onOpenStartNewDay: () => void;
+  isCloudSynced?: boolean;
+  isSyncing?: boolean;
+  onManualSyncToCloud?: () => void;
+  onOpenRecovery?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -18,7 +22,11 @@ export const Header: React.FC<HeaderProps> = ({
   onExportExcel,
   onBackupJson,
   onRestoreJson,
-  onOpenStartNewDay
+  onOpenStartNewDay,
+  isCloudSynced = false,
+  isSyncing = false,
+  onManualSyncToCloud,
+  onOpenRecovery
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -102,9 +110,16 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="text-lg font-bold text-stone-900 tracking-tight">
                 Daily Cash Book & Sales Ledger
               </h1>
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Live Ledger</span>
+              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-bold rounded-full border ${
+                isCloudSynced
+                  ? 'text-teal-700 bg-teal-50 border-teal-200'
+                  : 'text-emerald-700 bg-emerald-50 border-emerald-200'
+              }`} title={isCloudSynced ? 'Live real-time cloud sync connected across your phone, tablet, and PC' : 'Local ledger'}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isCloudSynced ? 'bg-teal-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`}></span>
+                <span className="flex items-center gap-1">
+                  {isCloudSynced && <Cloud className="w-3 h-3 text-teal-600 inline" />}
+                  <span>{isCloudSynced ? 'Cloud Live Sync' : 'Live Ledger'}</span>
+                </span>
               </span>
             </div>
             <p className="text-xs text-stone-500 flex items-center gap-2">
@@ -185,6 +200,37 @@ export const Header: React.FC<HeaderProps> = ({
             <UploadCloud className="w-3.5 h-3.5 text-blue-600" />
             <span className="hidden sm:inline">Restore</span>
           </button>
+
+          {/* Data Recovery & Storage Inspector Button */}
+          {onOpenRecovery && (
+            <button
+              id="btn-header-data-recovery"
+              type="button"
+              onClick={onOpenRecovery}
+              className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+              title="Inspect storage, recover past entries, and restore data"
+            >
+              <Database className="w-3.5 h-3.5 text-amber-600" />
+              <span>Data Recovery</span>
+            </button>
+          )}
+
+          {/* Sync Cloud Across Devices Button */}
+          {onManualSyncToCloud && (
+            <button
+              id="btn-header-sync-cloud"
+              type="button"
+              disabled={isSyncing}
+              onClick={onManualSyncToCloud}
+              className={`px-2.5 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs ${
+                isSyncing ? 'opacity-75 cursor-not-allowed' : ''
+              }`}
+              title="Synchronize all ledger data across Phone, Tablet, and PC in real time"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-teal-600 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync Cloud'}</span>
+            </button>
+          )}
 
           {/* Install / Direct Link Button */}
           <button

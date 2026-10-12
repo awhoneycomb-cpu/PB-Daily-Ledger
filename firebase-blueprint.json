@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial ledger entry for cash in, cash out, or internal transfers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "type": { "type": "string", "enum": ["cash_in", "cash_out"] },
+        "amount": { "type": "number" },
+        "salesperson": { "type": "string" },
+        "billNumber": { "type": "string" },
+        "paymentMode": { "type": "string", "enum": ["cash", "online"] },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "receiptNumber": { "type": "string" },
+        "biltyNumber": { "type": "string" },
+        "verified": { "type": "boolean" },
+        "notes": { "type": "string" },
+        "isInternalTransfer": { "type": "boolean" },
+        "transferSource": { "type": "string" },
+        "transferDestination": { "type": "string" },
+        "isRefund": { "type": "boolean" },
+        "refundExpenseCategory": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "date", "time", "type", "amount", "paymentMode"]
+    },
+    "VaultDeposit": {
+      "title": "VaultDeposit",
+      "description": "Separate direct cash injection into safe vault",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "categoryLabel": { "type": "string" },
+        "notes": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "amount", "category", "categoryLabel", "date", "time"]
+    },
+    "AppSetting": {
+      "title": "AppSetting",
+      "description": "Application settings including safe balances, opening floats, and counter staff",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" },
+        "value": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["key"]
+    }
+  },
+  "firestore": {
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Collection of all daily sales and expense transactions"
+    },
+    "/vault_deposits/{depositId}": {
+      "schema": "VaultDeposit",
+      "description": "Collection of all direct vault injections"
+    },
+    "/settings/{settingId}": {
+      "schema": "AppSetting",
+      "description": "Collection of app configuration and balance state"
+    }
+  }
+}

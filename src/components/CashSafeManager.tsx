@@ -18,7 +18,9 @@ import {
   Layers,
   Sparkles,
   History,
-  ArrowRight
+  ArrowRight,
+  User,
+  UserCheck
 } from 'lucide-react';
 import { VaultDeposit, VaultDepositCategory, Transaction } from '../types';
 import { formatPKR } from '../utils/exportSpreadsheet';
@@ -40,6 +42,8 @@ interface CashSafeManagerProps {
   onTransferDrawerToSafe?: (amount: number, reason?: string) => void;
   onTransferSafeToBank?: (amount: number, bankName: string, notes?: string) => void;
   onTransferDrawerToBank?: (amount: number, bankName: string, notes?: string) => void;
+  onTransferSafeToIndividual?: (amount: number, recipient: string, reason: string, receiptNumber?: string, notes?: string) => void;
+  staffList?: string[];
   transactions?: Transaction[];
   onDeleteTransaction?: (id: string) => void;
   onShowToast: (msg: string, type?: 'success' | 'info' | 'error') => void;
@@ -128,6 +132,8 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
   onTransferDrawerToSafe,
   onTransferSafeToBank,
   onTransferDrawerToBank,
+  onTransferSafeToIndividual,
+  staffList = [],
   transactions = [],
   onDeleteTransaction,
   onShowToast
@@ -141,8 +147,8 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
   );
   const [isSavedRecently, setIsSavedRecently] = useState<boolean>(false);
 
-  // Transfer Direction in Container 2: Drawer -> Safe vs Safe -> Drawer vs Safe -> Bank
-  const [activeTransferDirection, setActiveTransferDirection] = useState<'drawer_to_safe' | 'safe_to_drawer' | 'safe_to_bank'>('drawer_to_safe');
+  // Transfer Direction in Container 2: Drawer -> Safe vs Safe -> Drawer vs Safe -> Bank vs Safe -> Individual
+  const [activeTransferDirection, setActiveTransferDirection] = useState<'drawer_to_safe' | 'safe_to_drawer' | 'safe_to_bank' | 'safe_to_person'>('drawer_to_safe');
   
   // Drawer to Safe state
   const [drawerToSafeReason, setDrawerToSafeReason] = useState<string>('Day-End Cash Handover to Safe');
@@ -150,6 +156,13 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
   // Safe to Drawer state
   const [safeToDrawerInput, setSafeToDrawerInput] = useState<string>('');
   const [safeToDrawerReason, setSafeToDrawerReason] = useState<string>('Morning Float Replenishment');
+
+  // Safe to Individual (Person) state
+  const [safeToPersonAmount, setSafeToPersonAmount] = useState<string>('');
+  const [safeToPersonRecipient, setSafeToPersonRecipient] = useState<string>('');
+  const [safeToPersonReason, setSafeToPersonReason] = useState<string>('Partner / Owner Drawing');
+  const [safeToPersonReceipt, setSafeToPersonReceipt] = useState<string>('');
+  const [safeToPersonNotes, setSafeToPersonNotes] = useState<string>('');
 
   // Bank Deposit state: choose source (Safe vs Drawer)
   const [bankDepositSource, setBankDepositSource] = useState<'safe' | 'drawer'>('safe');
@@ -407,6 +420,54 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
     setSafeToBankAmount(String(current + val));
   };
 
+  // Safe to Individual Handler
+  const handleExecuteSafeToIndividual = () => {
+    const amountNum = parseFloat(safeToPersonAmount) || 0;
+    if (amountNum <= 0) {
+      onShowToast('Please enter an amount to transfer to the individual.', 'error');
+      const inputEl = document.getElementById('input-safe-to-person-amount') as HTMLInputElement | null;
+      inputEl?.focus();
+      return;
+    }
+
+    const recipientTrimmed = safeToPersonRecipient.trim();
+    if (!recipientTrimmed) {
+      onShowToast('Please specify the recipient individual or entity name.', 'error');
+      const inputEl = document.getElementById('input-safe-to-person-recipient') as HTMLInputElement | null;
+      inputEl?.focus();
+      return;
+    }
+
+    if (amountNum > totalSafeCash) {
+      onShowToast(`Safe Vault only has ${formatPKR(totalSafeCash)}. Cannot transfer ${formatPKR(amountNum)}.`, 'error');
+      return;
+    }
+
+    if (onTransferSafeToIndividual) {
+      onTransferSafeToIndividual(
+        amountNum,
+        recipientTrimmed,
+        safeToPersonReason.trim() || 'Safe Cash Handover',
+        safeToPersonReceipt.trim() || undefined,
+        safeToPersonNotes.trim() || undefined
+      );
+    } else {
+      onChangeSafeRunningBalance(Math.max(0, safeRunningBalance - amountNum));
+      onShowToast(`Transferred ${formatPKR(amountNum)} from Safe to ${recipientTrimmed}!`, 'success');
+    }
+
+    setSafeToPersonAmount('');
+    setSafeToPersonRecipient('');
+    setSafeToPersonReceipt('');
+    setSafeToPersonNotes('');
+    triggerSaved();
+  };
+
+  const handleQuickAddSafeToPerson = (val: number) => {
+    const current = parseFloat(safeToPersonAmount) || 0;
+    setSafeToPersonAmount(String(current + val));
+  };
+
   // Submit Separate Vault Deposit
   const handleSaveDeposit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -448,10 +509,18 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
       t.isInternalTransfer ||
       t.transferSource === 'safe' ||
       t.transferDestination === 'safe' ||
+      t.transferDestination === 'individual' ||
       t.transferDestination === 'bank' ||
       (t.category && (
         t.category.toLowerCase().includes('safe') || 
-        t.category.toLowerCase().includes('internal transfer')
+        t.category.toLowerCase().includes('internal transfer') ||
+        t.category.toLowerCase().includes('individual')
+      )) ||
+      (t.description && (
+        t.description.toLowerCase().includes('handover to') ||
+        t.description.toLowerCase().includes('safe cash to') ||
+        t.description.toLowerCase().includes('safe to individual') ||
+        t.description.toLowerCase().includes('safe ➔')
       ))
     );
   }, [transactions]);
@@ -641,7 +710,7 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
         <div className="md:col-span-4 bg-stone-50/80 border border-stone-200/90 rounded-xl p-4 flex flex-col justify-between">
           <div>
             {/* Direction Selector Tabs */}
-            <div className="grid grid-cols-3 gap-1 p-0.5 bg-stone-200/70 rounded-lg mb-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-0.5 bg-stone-200/70 rounded-lg mb-2.5">
               <button
                 type="button"
                 id="btn-tab-drawer-to-safe"
@@ -683,6 +752,20 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
               >
                 <Landmark className="w-3 h-3 text-blue-600 shrink-0" />
                 <span className="truncate">Safe ➔ Bank</span>
+              </button>
+              <button
+                type="button"
+                id="btn-tab-safe-to-person"
+                onClick={() => setActiveTransferDirection('safe_to_person')}
+                className={`py-1 px-1 rounded-md text-[10px] sm:text-[11px] font-bold transition-all text-center flex items-center justify-center gap-1 cursor-pointer truncate ${
+                  activeTransferDirection === 'safe_to_person'
+                    ? 'bg-white text-purple-900 shadow-2xs'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+                title="Transfer cash from safe vault to any individual person"
+              >
+                <User className="w-3 h-3 text-purple-600 shrink-0" />
+                <span className="truncate">Safe ➔ Individual</span>
               </button>
             </div>
 
@@ -883,7 +966,7 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                   <span>Transfer to Drawer {safeToDrawerInput && parseFloat(safeToDrawerInput) > 0 ? `(${formatPKR(parseFloat(safeToDrawerInput) || 0)})` : ''}</span>
                 </button>
               </div>
-            ) : (
+            ) : activeTransferDirection === 'safe_to_bank' ? (
               /* BANK DEPOSIT (From Safe Vault or Cash Drawer) */
               <div>
                 <div className="flex items-center justify-between mb-1.5">
@@ -1083,6 +1166,175 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                   </div>
                 )}
               </div>
+            ) : (
+              /* SAFE TO INDIVIDUAL / PERSON (Partner Drawing, Advance, Vendor, Loan) */
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-bold text-stone-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Safe Cash to Individual</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded">
+                    Safe Total: {formatPKR(totalSafeCash)}
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-stone-500 mb-2 leading-relaxed">
+                  Disburse cash directly from the safe vault to an owner, partner, staff member, or vendor without altering register drawer cash.
+                </p>
+
+                {/* Amount Input */}
+                <div className="relative mb-2">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-stone-400 select-none">
+                    Rs.
+                  </span>
+                  <input
+                    id="input-safe-to-person-amount"
+                    type="number"
+                    min="1"
+                    step="any"
+                    value={safeToPersonAmount}
+                    placeholder="e.g. 25000"
+                    onChange={e => setSafeToPersonAmount(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleExecuteSafeToIndividual();
+                      }
+                    }}
+                    className="w-full pl-9 pr-3 py-1.5 bg-white border border-stone-300 rounded-lg text-base font-bold font-mono text-stone-900 focus:border-purple-600 focus:ring-1 focus:ring-purple-600 outline-hidden transition-all shadow-2xs"
+                  />
+                </div>
+
+                {/* Quick Add Presets */}
+                <div className="flex items-center gap-1 mb-2">
+                  {[5000, 10000, 25000, 50000].map(amt => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => handleQuickAddSafeToPerson(amt)}
+                      className="flex-1 py-0.5 bg-white hover:bg-purple-50 hover:text-purple-800 border border-stone-200 rounded text-[10px] font-bold text-stone-700 transition-colors cursor-pointer text-center"
+                    >
+                      +{amt >= 1000 ? `${amt / 1000}k` : amt}
+                    </button>
+                  ))}
+                  {totalSafeCash > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSafeToPersonAmount(String(totalSafeCash))}
+                      className="py-0.5 px-2 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded text-[10px] font-bold transition-colors cursor-pointer truncate"
+                      title="Set full safe vault balance"
+                    >
+                      All Safe
+                    </button>
+                  )}
+                </div>
+
+                {/* Recipient Selection & Input */}
+                <div className="mb-2">
+                  <label 
+                    htmlFor="input-safe-to-person-recipient"
+                    className="text-[10px] font-bold text-stone-700 block mb-1 uppercase tracking-wider"
+                  >
+                    Recipient Individual / Entity:
+                  </label>
+                  <div className="relative mb-1">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400">
+                      <User className="w-3.5 h-3.5" />
+                    </span>
+                    <input
+                      id="input-safe-to-person-recipient"
+                      type="text"
+                      value={safeToPersonRecipient}
+                      onChange={e => setSafeToPersonRecipient(e.target.value)}
+                      placeholder="e.g. Partner / Owner, Staff Name, Vendor..."
+                      className="w-full pl-8 pr-3 py-1.5 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-stone-900 focus:border-purple-600 focus:ring-1 focus:ring-purple-600 outline-hidden"
+                    />
+                  </div>
+
+                  {/* Quick Recipient Suggestions */}
+                  <div className="flex items-center gap-1 flex-wrap text-[10px]">
+                    <span className="text-stone-400">Quick:</span>
+                    {['Owner Drawing', ...(staffList || []).slice(0, 3)].map(rec => (
+                      <button
+                        key={rec}
+                        type="button"
+                        onClick={() => setSafeToPersonRecipient(rec)}
+                        className={`px-1.5 py-0.5 rounded border transition-colors cursor-pointer font-medium ${
+                          safeToPersonRecipient === rec
+                            ? 'bg-purple-100 border-purple-300 text-purple-900 font-bold'
+                            : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-100'
+                        }`}
+                      >
+                        {rec}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Purpose / Reason & Voucher No */}
+                <div className="grid grid-cols-2 gap-1.5 mb-2.5">
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-600 block mb-0.5">
+                      Purpose / Category:
+                    </label>
+                    <select
+                      value={safeToPersonReason}
+                      onChange={e => setSafeToPersonReason(e.target.value)}
+                      className="w-full py-1 px-2 text-[11px] bg-white border border-stone-200 rounded-lg text-stone-700 font-medium outline-hidden"
+                    >
+                      <option value="Partner / Owner Drawing">Partner / Owner Drawing</option>
+                      <option value="Advance Salary to Staff">Advance Salary to Staff</option>
+                      <option value="Loan / Borrowing Handover">Loan / Borrowing Handover</option>
+                      <option value="Supplier / Vendor Settlement">Vendor / Supplier Payment</option>
+                      <option value="Contractor / Labor Handover">Contractor / Labor Payment</option>
+                      <option value="Committee (Kameti) Payout">Committee (Kameti) Payout</option>
+                      <option value="Emergency Cash Handover">Emergency Cash Handover</option>
+                      <option value="Personal Cash Withdrawal">Personal Cash Withdrawal</option>
+                      <option value="Other Cash Handover">Other Cash Handover</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-600 block mb-0.5">
+                      Voucher / Slip # (Opt):
+                    </label>
+                    <input
+                      type="text"
+                      value={safeToPersonReceipt}
+                      onChange={e => setSafeToPersonReceipt(e.target.value)}
+                      placeholder="e.g. VCH-102"
+                      className="w-full py-1 px-2 text-[11px] bg-white border border-stone-200 rounded-lg text-stone-700 font-medium outline-hidden"
+                    />
+                  </div>
+                </div>
+
+                {/* Optional Detailed Notes */}
+                <div className="mb-2.5">
+                  <label className="text-[10px] font-bold text-stone-600 block mb-0.5">
+                    Particulars / Reason Details (Opt):
+                  </label>
+                  <input
+                    type="text"
+                    value={safeToPersonNotes}
+                    onChange={e => setSafeToPersonNotes(e.target.value)}
+                    placeholder="e.g. Month 6 Kameti collection, advance drawing for purchase, etc."
+                    className="w-full py-1 px-2 text-[11px] bg-white border border-stone-200 rounded-lg text-stone-700 font-medium outline-hidden"
+                  />
+                </div>
+
+                {/* Confirm Button */}
+                <button
+                  type="button"
+                  id="btn-confirm-safe-to-person"
+                  onClick={handleExecuteSafeToIndividual}
+                  className="w-full py-2 px-3 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>
+                    Transfer Cash to Individual {safeToPersonAmount && parseFloat(safeToPersonAmount) > 0 ? `(${formatPKR(parseFloat(safeToPersonAmount) || 0)})` : ''}
+                  </span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -1092,14 +1344,18 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                 ? 'Drawer Transfer (to Safe):' 
                 : activeTransferDirection === 'safe_to_drawer'
                 ? 'Safe to Drawer (Replenish):'
-                : 'Safe to Bank (Deposit):'}
+                : activeTransferDirection === 'safe_to_bank'
+                ? 'Safe to Bank (Deposit):'
+                : 'Safe to Individual (Payout):'}
             </span>
             <strong className="font-mono text-emerald-700 font-bold">
               {activeTransferDirection === 'drawer_to_safe'
                 ? `+${formatPKR(transferInput ? parseFloat(transferInput) || 0 : safeTransferAmount)}`
                 : activeTransferDirection === 'safe_to_drawer'
                 ? (safeToDrawerInput ? `+${formatPKR(parseFloat(safeToDrawerInput) || 0)}` : 'Rs. 0')
-                : (safeToBankAmount ? `-${formatPKR(parseFloat(safeToBankAmount) || 0)}` : 'Rs. 0')}
+                : activeTransferDirection === 'safe_to_bank'
+                ? (safeToBankAmount ? `-${formatPKR(parseFloat(safeToBankAmount) || 0)}` : 'Rs. 0')
+                : (safeToPersonAmount ? `-${formatPKR(parseFloat(safeToPersonAmount) || 0)}` : 'Rs. 0')}
             </strong>
           </div>
         </div>
@@ -1215,9 +1471,10 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
         {safeActivities.length > 0 ? (
           <div className="space-y-2">
             {safeActivities.map(item => {
-              const isDrawerToSafe = item.transferDestination === 'safe' || item.type === 'cash_out' && item.category?.includes('Safe') && item.transferDestination !== 'bank';
+              const isDrawerToSafe = item.transferDestination === 'safe' || item.type === 'cash_out' && item.category?.includes('Safe') && item.transferDestination !== 'bank' && item.transferDestination !== 'individual';
               const isSafeToDrawer = item.transferSource === 'safe' && item.type === 'cash_in';
               const isSafeToBank = item.transferDestination === 'bank' || item.category?.includes('Bank') && item.transferSource === 'safe';
+              const isSafeToPerson = item.transferDestination === 'individual' || (item.transferSource === 'safe' && (item.category?.includes('Individual') || item.description?.toLowerCase().includes('handover to') || item.description?.toLowerCase().includes('safe cash to')));
 
               let badgeStyle = 'bg-stone-100 text-stone-800 border-stone-200';
               let badgeLabel = 'Transfer';
@@ -1246,6 +1503,13 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                 IconComp = Landmark;
                 directionText = 'Outflow from Safe (Deposited into Bank Account)';
                 amountColor = 'text-blue-700';
+                sign = '-';
+              } else if (isSafeToPerson) {
+                badgeStyle = 'bg-purple-100 text-purple-900 border-purple-300';
+                badgeLabel = `Safe ➔ ${item.salesperson || 'Individual'}`;
+                IconComp = User;
+                directionText = `Outflow from Safe (Handed over to ${item.salesperson || 'Individual'})`;
+                amountColor = 'text-purple-700';
                 sign = '-';
               }
 

@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function for ID validation
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if true;
+      allow create, update, delete: if isValidId(transactionId);
+    }
+
+    match /vault_deposits/{depositId} {
+      allow read: if true;
+      allow create, update, delete: if isValidId(depositId);
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow create, update, delete: if isValidId(settingId);
+    }
+
+    match /test/{testId} {
+      allow read, write: if true;
+    }
+  }
+}

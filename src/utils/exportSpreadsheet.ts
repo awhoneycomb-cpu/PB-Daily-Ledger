@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { Transaction } from '../types';
+import { Transaction, getMainCashOutCategory } from '../types';
 
 export function formatPKR(val: number): string {
   return new Intl.NumberFormat('en-PK', {
@@ -37,12 +37,30 @@ export function exportToExcel(
     'Sr #': idx + 1,
     'Date': t.date,
     'Time': t.time || '',
-    'Type': t.type === 'cash_in' ? (t.isRefund ? 'Cash In (Refund)' : 'Cash In') : 'Cash Out',
+    'Type': t.type === 'cash_in'
+      ? (t.isRefund ? 'Cash In (Refund)' : (t.transferSource === 'safe' ? 'Safe ➔ Drawer Replenish' : 'Cash In'))
+      : (t.transferDestination === 'individual' ? 'Safe ➔ Individual Payout' : t.transferDestination === 'bank' ? 'Safe ➔ Bank Deposit' : t.transferDestination === 'safe' ? 'Drawer ➔ Safe Handover' : 'Cash Out'),
+    'Main Category': t.type === 'cash_in'
+      ? (t.isRefund ? 'Expense Refund' : 'Sales Revenue')
+      : (getMainCashOutCategory(t) === 'vendor_payments'
+          ? 'Vendor Payments'
+          : getMainCashOutCategory(t) === 'market_payments'
+          ? 'Market Payments (Creditor)'
+          : getMainCashOutCategory(t) === 'internal_transfer'
+          ? 'Internal Transfer'
+          : 'Expenses'),
+    'Party / Vendor / Creditor': t.partyName || (t.transferDestination === 'individual' ? t.salesperson : '') || '-',
     'Amount (PKR)': t.amount,
-    'Payment Mode': t.paymentMode === 'online' ? 'Online Transfer' : 'Cash (Physical)',
+    'Payment Mode': t.transferDestination === 'individual'
+      ? 'Safe Vault Outflow'
+      : t.transferSource === 'safe'
+      ? 'Safe Vault Transfer'
+      : t.paymentMode === 'online'
+      ? 'Online Transfer'
+      : 'Cash (Physical)',
     'Salesperson / Counter': t.salesperson || '-',
     'Bill #': t.billNumber || '-',
-    'Category': t.category || (t.type === 'cash_in' ? (t.isRefund ? 'Expense Refund' : 'Sales Revenue') : 'Expense'),
+    'Category / Subcategory': t.category || (t.type === 'cash_in' ? (t.isRefund ? 'Expense Refund' : 'Sales Revenue') : 'Expense'),
     'Description / Particulars': t.description || '',
     'Receipt / Voucher #': t.receiptNumber || t.biltyNumber || '',
     'Verified (✓)': t.verified ? 'Yes (✓)' : 'No'
@@ -67,7 +85,17 @@ export function exportToExcel(
       'OUT_Sr': outItem ? i + 1 : '',
       'OUT_Verified': outItem ? (outItem.verified ? '(✓)' : '') : '',
       'OUT_Amount': outItem ? outItem.amount : '',
-      'OUT_Mode': outItem ? (outItem.paymentMode === 'online' ? 'ONLINE' : 'CASH') : '',
+      'OUT_Mode': outItem 
+        ? (outItem.transferDestination === 'individual' 
+            ? 'SAFE➔INDIVIDUAL' 
+            : outItem.transferDestination === 'bank' 
+            ? 'SAFE➔BANK' 
+            : outItem.transferDestination === 'safe' 
+            ? 'DRAWER➔SAFE' 
+            : outItem.paymentMode === 'online' 
+            ? 'ONLINE' 
+            : 'CASH') 
+        : '',
       'OUT_Description': outItem ? `${outItem.description} ${(outItem.receiptNumber || outItem.biltyNumber) ? `[Receipt #${outItem.receiptNumber || outItem.biltyNumber}]` : ''}` : '',
       
       '': '||', // Separator column
@@ -194,21 +222,35 @@ export function exportToExcel(
 }
 
 export function exportToCSV(transactions: Transaction[], selectedDate: string) {
-  const headers = ['ID', 'Date', 'Time', 'Type', 'Amount_PKR', 'Payment_Mode', 'Salesperson', 'Bill_No', 'Category', 'Description', 'Receipt_No', 'Verified'];
-  const rows = transactions.map((t, idx) => [
-    t.id || `TX-${idx + 1}`,
-    t.date || selectedDate,
-    t.time || '',
-    t.type,
-    t.amount,
-    t.paymentMode || 'cash',
-    `"${(t.salesperson || '').replace(/"/g, '""')}"`,
-    `"${(t.billNumber || '').replace(/"/g, '""')}"`,
-    `"${(t.category || '').replace(/"/g, '""')}"`,
-    `"${(t.description || '').replace(/"/g, '""')}"`,
-    `"${(t.receiptNumber || t.biltyNumber || '').replace(/"/g, '""')}"`,
-    t.verified ? 'YES' : 'NO'
-  ]);
+  const headers = ['ID', 'Date', 'Time', 'Type', 'Main_Category', 'Party_Name', 'Amount_PKR', 'Payment_Mode', 'Salesperson', 'Bill_No', 'Category', 'Description', 'Receipt_No', 'Verified'];
+  const rows = transactions.map((t, idx) => {
+    const mainCat = t.type === 'cash_in'
+      ? (t.isRefund ? 'Expense Refund' : 'Sales Revenue')
+      : (getMainCashOutCategory(t) === 'vendor_payments'
+          ? 'Vendor Payments'
+          : getMainCashOutCategory(t) === 'market_payments'
+          ? 'Market Payments (Creditor)'
+          : getMainCashOutCategory(t) === 'internal_transfer'
+          ? 'Internal Transfer'
+          : 'Expenses');
+
+    return [
+      t.id || `TX-${idx + 1}`,
+      t.date || selectedDate,
+      t.time || '',
+      t.type,
+      `"${mainCat}"`,
+      `"${(t.partyName || (t.transferDestination === 'individual' ? t.salesperson : '') || '').replace(/"/g, '""')}"`,
+      t.amount,
+      t.paymentMode || 'cash',
+      `"${(t.salesperson || '').replace(/"/g, '""')}"`,
+      `"${(t.billNumber || '').replace(/"/g, '""')}"`,
+      `"${(t.category || '').replace(/"/g, '""')}"`,
+      `"${(t.description || '').replace(/"/g, '""')}"`,
+      `"${(t.receiptNumber || t.biltyNumber || '').replace(/"/g, '""')}"`,
+      t.verified ? 'YES' : 'NO'
+    ];
+  });
 
   const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

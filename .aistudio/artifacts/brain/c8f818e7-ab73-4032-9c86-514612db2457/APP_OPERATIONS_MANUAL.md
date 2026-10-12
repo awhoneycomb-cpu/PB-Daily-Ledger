@@ -235,6 +235,18 @@ To protect against accidental data loss, clicking **Clear** opens a confirmation
 2. Check if a customer sale was recorded as Cash instead of Online, or vice versa.
 3. Check if change was given incorrectly.
 
+#### Q: My data looks missing or I see 0 transactions. How do I recover it?
+**A:** Your data is safe. Here are the three most common reasons and immediate 1-click fixes:
+1. **Different Date Selected:** The ledger opens showing today's date. If your entries were made yesterday, last week, or on September 5, click the **"View All Dates"** button on the filter bar or banner, or use the date picker to jump to that date.
+2. **Data on Your Phone's Browser:** If you entered transactions on your phone, open the app on your phone and tap **"Sync Cloud"** or **"Data Recovery"** -> **"Push to Cloud"**. It will immediately push all stored entries to the live cloud database so your PC sees them instantly.
+3. **Data Recovery Center:** Click the **"Data Recovery"** button in the header at any time. It inspects local storage, reveals all dates with records, lets you restore saved snapshots, and provides emergency import/export tools.
+
+#### Q: How does cross-device synchronization work between my phone and computer?
+**A:** The application includes live Firebase Firestore cloud synchronization:
+1. **Live Automatic Sync:** Any entry added on your phone, tablet, or desktop instantly syncs across all connected devices in real time without refreshing.
+2. **"Sync Cloud" Button:** If you previously had entries entered only on your phone (in offline or local storage), clicking the **"Sync Cloud"** button in the header will immediately upload and broadcast your complete transaction history to the cloud database so it appears on all devices.
+3. **Cloud Live Status:** Look at the badge next to the app title in the header—it displays **"Cloud Live Sync"** with a live pulsing indicator when active.
+
 #### Q: How can I run the app without opening Google AI Studio?
 **A:** You have 3 easy ways:
 1. **Direct Web Link:** Open `https://ais-pre-ubptl7rfpbv4cwlo2iqnng-184534543669.asia-southeast1.run.app` directly in your browser. Bookmark it or pin it to your browser tabs.
@@ -242,4 +254,5 @@ To protect against accidental data loss, clicking **Clear** opens a confirmation
 3. **Run 100% Offline (Local Machine):** Download the code, run `npm install` and `npm run dev`, and open `http://localhost:3000`.
 
 #### Q: Can I run this system without an internet connection?
-**A:** Yes. The application operates entirely in your web browser. All entries are saved locally in the browser's storage instantly. You can export Excel sheets or create JSON backups at any time offline.
+**A:** Yes. The application is built offline-first. If you lose internet or work offline, transactions are securely cached locally. As soon as you reconnect, they sync back to the cloud. You can also export Excel sheets or create JSON backups at any time offline.
+

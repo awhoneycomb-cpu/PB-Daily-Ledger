@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { PlusCircle, MinusCircle, Check, ArrowRight, Tag, User, Hash, CheckSquare, Sparkles, Undo2, RotateCcw, Save, Lock, ArrowUpRight, Landmark, Briefcase, Calendar, Clock } from 'lucide-react';
-import { Transaction, TransactionType, PaymentMode } from '../types';
-import { INITIAL_STAFF_COUNTERS, EXPENSE_CATEGORIES } from '../data/sampleLedger';
+import { PlusCircle, MinusCircle, Check, ArrowRight, Tag, User, Hash, CheckSquare, Sparkles, Undo2, RotateCcw, Save, Lock, ArrowUpRight, Landmark, Briefcase, Calendar, Clock, Truck, Store, Building2, CreditCard } from 'lucide-react';
+import { Transaction, TransactionType, PaymentMode, MainCashOutCategory } from '../types';
+import { 
+  INITIAL_STAFF_COUNTERS, 
+  EXPENSE_CATEGORIES, 
+  MAIN_CASHOUT_CATEGORIES, 
+  VENDOR_PAYMENT_SUBCATEGORIES, 
+  MARKET_CREDITOR_SUBCATEGORIES,
+  COMMON_VENDORS,
+  COMMON_MARKET_CREDITORS 
+} from '../data/sampleLedger';
 import { formatPKR } from '../utils/exportSpreadsheet';
 
 interface IntakeFormProps {
@@ -13,6 +21,7 @@ interface IntakeFormProps {
   cashOutCount?: number;
   safeRunningBalance?: number;
   onDeductFromSafe?: (amount: number) => boolean;
+  onTransferSafeToIndividual?: (amount: number, recipient: string, reason: string, receiptNumber?: string, notes?: string) => void;
 }
 
 export const IntakeForm: React.FC<IntakeFormProps> = ({
@@ -23,7 +32,8 @@ export const IntakeForm: React.FC<IntakeFormProps> = ({
   cashInCount = 0,
   cashOutCount = 0,
   safeRunningBalance = 0,
-  onDeductFromSafe
+  onDeductFromSafe,
+  onTransferSafeToIndividual
 }) => {
   const [type, setType] = useState<TransactionType>('cash_in');
   const [cashInSubtype, setCashInSubtype] = useState<'sales' | 'refund' | 'injection'>('sales');
@@ -36,6 +46,9 @@ export const IntakeForm: React.FC<IntakeFormProps> = ({
   const [isAddingNewStaff, setIsAddingNewStaff] = useState<boolean>(false);
   const [billNumber, setBillNumber] = useState<string>('');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('cash');
+  const [outSource, setOutSource] = useState<'drawer' | 'safe' | 'bank'>('drawer');
+  const [mainCategory, setMainCategory] = useState<MainCashOutCategory>('expenses');
+  const [partyName, setPartyName] = useState<string>('');
   const [category, setCategory] = useState<string>(EXPENSE_CATEGORIES[0]);
   const [description, setDescription] = useState<string>('');
   const [receiptNumber, setReceiptNumber] = useState<string>('');
@@ -90,6 +103,7 @@ export const IntakeForm: React.FC<IntakeFormProps> = ({
     setReceiptNumber('');
     setIsExpenseRefund(false);
     setCashInSubtype('sales');
+    setPartyName('');
   };
 
 
@@ -162,29 +176,81 @@ export const IntakeForm: React.FC<IntakeFormProps> = ({
       setDescription('');
       setIsExpenseRefund(false);
     } else {
-      const isTransfer = category.includes('Safe') || category.includes('Bank Deposit') || category.includes('Internal Transfer');
+      const isSafeToIndividual = outSource === 'safe' || (mainCategory === 'expenses' && category.toLowerCase().includes('safe transfer to individual'));
+      const isDrawerToSafe = !isSafeToIndividual && (category.includes('Transfer to Safe') || category.includes('Drawer ➔ Safe'));
+      const isBankDeposit = !isSafeToIndividual && (category.includes('Bank Deposit') || outSource === 'bank');
+      const isTransfer = isSafeToIndividual || isDrawerToSafe || isBankDeposit || category.includes('Internal Transfer');
       const targetDate = entryDate || selectedDate;
       const cleanReceipt = receiptNumber.trim() || undefined;
-      onAddTransaction({
-        date: targetDate,
-        time: entryTime,
-        type: 'cash_out',
-        amount: numAmount,
-        category,
-        paymentMode,
-        description: description.trim() || category.split('(')[0].trim(),
-        receiptNumber: cleanReceipt,
-        biltyNumber: cleanReceipt,
-        verified,
-        isInternalTransfer: isTransfer,
-        transferDestination: category.includes('Safe') ? 'safe' : category.includes('Bank Deposit') ? 'bank' : undefined,
-        transferSource: isTransfer ? 'drawer' : undefined
-      });
+      const cleanParty = partyName.trim() || undefined;
+
+      if (isSafeToIndividual) {
+        const recipientName = cleanParty || salesperson.trim() || 'Individual';
+        if (onTransferSafeToIndividual) {
+          onTransferSafeToIndividual(
+            numAmount,
+            recipientName,
+            description.trim() || (mainCategory === 'vendor_payments' ? 'Safe Vendor Payment' : mainCategory === 'market_payments' ? 'Safe Market Creditor Payment' : 'Safe Cash Handover to Individual'),
+            cleanReceipt,
+            description.trim() || undefined
+          );
+        } else {
+          if (onDeductFromSafe) {
+            onDeductFromSafe(numAmount);
+          }
+          onAddTransaction({
+            date: targetDate,
+            time: entryTime,
+            type: 'cash_out',
+            amount: numAmount,
+            mainCategory,
+            partyName: cleanParty,
+            category: 'Safe Transfer (Safe ➔ Individual)',
+            paymentMode: 'online', // Keep physical drawer register untouched
+            description: description.trim() || `Cash handover to ${recipientName} from Safe`,
+            salesperson: recipientName,
+            receiptNumber: cleanReceipt,
+            biltyNumber: cleanReceipt,
+            verified,
+            isInternalTransfer: true,
+            transferSource: 'safe',
+            transferDestination: 'individual',
+            notes: `Cash transferred from Safe Vault to ${recipientName}`
+          });
+        }
+      } else {
+        const defaultDesc = mainCategory === 'vendor_payments'
+          ? (cleanParty ? `Payment to ${cleanParty} (${category})` : `Vendor Payment (${category})`)
+          : mainCategory === 'market_payments'
+          ? (cleanParty ? `Market Creditor payment to ${cleanParty} (${category})` : `Market Creditor Payment (${category})`)
+          : category.split('(')[0].trim();
+
+        onAddTransaction({
+          date: targetDate,
+          time: entryTime,
+          type: 'cash_out',
+          amount: numAmount,
+          mainCategory,
+          partyName: cleanParty,
+          category,
+          paymentMode: outSource === 'bank' ? 'online' : paymentMode,
+          description: description.trim() || defaultDesc,
+          receiptNumber: cleanReceipt,
+          biltyNumber: cleanReceipt,
+          verified,
+          isInternalTransfer: isTransfer,
+          transferDestination: isDrawerToSafe ? 'safe' : isBankDeposit ? 'bank' : undefined,
+          transferSource: isTransfer ? 'drawer' : undefined
+        });
+      }
+
       // Reset cash out fields
       setAmount('');
       setDescription('');
       setReceiptNumber('');
       setPaymentMode('cash');
+      setOutSource('drawer');
+      setPartyName('');
     }
 
     setJustSubmitted(true);
@@ -814,106 +880,416 @@ export const IntakeForm: React.FC<IntakeFormProps> = ({
 
         {/* CASH OUT FIELDS */}
         {type === 'cash_out' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
-            {/* Expense Category */}
-            <div className="md:col-span-1">
-              <label htmlFor="select-category" className="block text-xs font-bold text-stone-700 mb-1.5">
-                Expense Category
-              </label>
-              <select
-                id="select-category"
-                value={category}
-                onChange={e => setCategory(e.target.value)}
-                className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-semibold text-stone-800 focus:bg-white focus:border-amber-600 outline-hidden"
-              >
-                {EXPENSE_CATEGORIES.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Receipt / Voucher Reference # */}
-            <div className="md:col-span-1">
-              <label htmlFor="input-receipt-num" className="block text-xs font-bold text-stone-700 mb-1.5 flex items-center justify-between">
-                <span>Receipt / Voucher #</span>
-                <span className="text-[10px] text-stone-400 font-normal">Optional</span>
-              </label>
-              <input
-                id="input-receipt-num"
-                type="text"
-                placeholder="e.g. Receipt # 9250644, 4359"
-                value={receiptNumber}
-                onChange={e => setReceiptNumber(e.target.value)}
-                className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-semibold text-stone-800 focus:bg-white focus:border-amber-600 outline-hidden"
-              />
-            </div>
-
-            {/* Payment Source: Cash Drawer vs Bank Online */}
-            <div className="md:col-span-1">
-              <label className="block text-xs font-bold text-stone-700 mb-1.5">
-                Paid From
-              </label>
-              <div className="grid grid-cols-2 gap-1.5 p-1 bg-stone-100 rounded-lg">
+          <div className="space-y-3.5 pt-1">
+            {/* 3 MAIN CATEGORIES SWITCHER */}
+            <div className="bg-stone-50 border border-stone-200/90 rounded-xl p-2.5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  <span>Select Main Category:</span>
+                </span>
+                <span className="text-[10px] text-stone-500 font-medium">
+                  3 Primary Cash Out Classifications
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {/* 1. Expenses */}
                 <button
                   type="button"
-                  id="btn-out-mode-cash"
-                  onClick={() => setPaymentMode('cash')}
-                  className={`py-1 px-2 rounded-md text-xs font-bold flex items-center justify-center gap-1 transition-all ${
-                    paymentMode === 'cash'
-                      ? 'bg-white text-amber-900 shadow-xs border border-amber-200'
-                      : 'text-stone-600 hover:text-stone-900'
+                  id="btn-cat-expenses"
+                  onClick={() => {
+                    setMainCategory('expenses');
+                    setCategory(EXPENSE_CATEGORIES[0]);
+                  }}
+                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                    mainCategory === 'expenses'
+                      ? 'bg-amber-50/90 border-amber-400 ring-2 ring-amber-400/30 text-amber-950 shadow-xs'
+                      : 'bg-white border-stone-200 hover:border-stone-300 text-stone-700 hover:bg-stone-50/60'
                   }`}
                 >
-                  <span>Cash Drawer</span>
+                  <div className={`p-1.5 rounded-md mt-0.5 shrink-0 ${
+                    mainCategory === 'expenses' ? 'bg-amber-200 text-amber-900' : 'bg-stone-100 text-stone-600'
+                  }`}>
+                    <Briefcase className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold flex items-center gap-1">
+                      <span>1. Expenses</span>
+                      {mainCategory === 'expenses' && <Check className="w-3.5 h-3.5 text-amber-700" />}
+                    </div>
+                    <div className="text-[10px] text-stone-500 leading-tight mt-0.5 truncate">
+                      Daily shop & office operational costs
+                    </div>
+                  </div>
                 </button>
+
+                {/* 2. Vendor payments */}
                 <button
                   type="button"
-                  id="btn-out-mode-online"
-                  onClick={() => setPaymentMode('online')}
-                  className={`py-1 px-2 rounded-md text-xs font-bold flex items-center justify-center gap-1 transition-all ${
-                    paymentMode === 'online'
-                      ? 'bg-amber-700 text-white shadow-xs'
-                      : 'text-stone-600 hover:text-stone-900'
+                  id="btn-cat-vendor"
+                  onClick={() => {
+                    setMainCategory('vendor_payments');
+                    setCategory(VENDOR_PAYMENT_SUBCATEGORIES[0]);
+                  }}
+                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                    mainCategory === 'vendor_payments'
+                      ? 'bg-blue-50/90 border-blue-400 ring-2 ring-blue-400/30 text-blue-950 shadow-xs'
+                      : 'bg-white border-stone-200 hover:border-stone-300 text-stone-700 hover:bg-stone-50/60'
                   }`}
                 >
-                  <span>Bank Account</span>
+                  <div className={`p-1.5 rounded-md mt-0.5 shrink-0 ${
+                    mainCategory === 'vendor_payments' ? 'bg-blue-200 text-blue-900' : 'bg-stone-100 text-stone-600'
+                  }`}>
+                    <Truck className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold flex items-center gap-1">
+                      <span>2. Vendor payments</span>
+                      {mainCategory === 'vendor_payments' && <Check className="w-3.5 h-3.5 text-blue-700" />}
+                    </div>
+                    <div className="text-[10px] text-stone-500 leading-tight mt-0.5 truncate">
+                      Goods, suppliers & factory invoices
+                    </div>
+                  </div>
+                </button>
+
+                {/* 3. Market payments which is a creditor */}
+                <button
+                  type="button"
+                  id="btn-cat-market-creditor"
+                  onClick={() => {
+                    setMainCategory('market_payments');
+                    setCategory(MARKET_CREDITOR_SUBCATEGORIES[0]);
+                  }}
+                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                    mainCategory === 'market_payments'
+                      ? 'bg-purple-50/90 border-purple-400 ring-2 ring-purple-400/30 text-purple-950 shadow-xs'
+                      : 'bg-white border-stone-200 hover:border-stone-300 text-stone-700 hover:bg-stone-50/60'
+                  }`}
+                >
+                  <div className={`p-1.5 rounded-md mt-0.5 shrink-0 ${
+                    mainCategory === 'market_payments' ? 'bg-purple-200 text-purple-900' : 'bg-stone-100 text-stone-600'
+                  }`}>
+                    <Store className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold flex items-center gap-1">
+                      <span>3. Market payments</span>
+                      {mainCategory === 'market_payments' && <Check className="w-3.5 h-3.5 text-purple-700" />}
+                    </div>
+                    <div className="text-[10px] text-purple-700 font-semibold leading-tight mt-0.5 truncate">
+                      Creditor / wholesale udhaar accounts
+                    </div>
+                  </div>
                 </button>
               </div>
             </div>
 
-            {/* Verified (✓) Toggle */}
-            <div className="md:col-span-1 flex flex-col justify-end">
-              <label
-                htmlFor="checkbox-verified"
-                className="flex items-center gap-2 px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg cursor-pointer hover:bg-stone-100 transition-colors"
-              >
+            {/* PARTY / SUBCATEGORY / VOUCHER / PAYMENT SOURCE ROW */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+              {/* Category / Subcategory Dropdown */}
+              <div className="md:col-span-1">
+                <label htmlFor="select-category" className="block text-xs font-bold text-stone-700 mb-1.5">
+                  {mainCategory === 'expenses'
+                    ? 'Expense Category'
+                    : mainCategory === 'vendor_payments'
+                    ? 'Vendor Payment Type'
+                    : 'Creditor Settlement Type'}
+                </label>
+                <select
+                  id="select-category"
+                  value={category}
+                  onChange={e => {
+                    const nextCat = e.target.value;
+                    setCategory(nextCat);
+                    if (nextCat.includes('Safe Transfer to Individual')) {
+                      setOutSource('safe');
+                      setPaymentMode('online');
+                    } else if (nextCat.includes('Transfer to Safe')) {
+                      setOutSource('drawer');
+                      setPaymentMode('cash');
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-semibold text-stone-800 focus:bg-white focus:border-amber-600 outline-hidden"
+                >
+                  {mainCategory === 'expenses' && EXPENSE_CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                  {mainCategory === 'vendor_payments' && VENDOR_PAYMENT_SUBCATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                  {mainCategory === 'market_payments' && MARKET_CREDITOR_SUBCATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Receipt / Voucher Reference # */}
+              <div className="md:col-span-1">
+                <label htmlFor="input-receipt-num" className="block text-xs font-bold text-stone-700 mb-1.5 flex items-center justify-between">
+                  <span>
+                    {mainCategory === 'vendor_payments' ? 'Invoice / Voucher #' : mainCategory === 'market_payments' ? 'Credit Slip / Bill #' : 'Receipt / Voucher #'}
+                  </span>
+                  <span className="text-[10px] text-stone-400 font-normal">Optional</span>
+                </label>
                 <input
-                  id="checkbox-verified"
-                  type="checkbox"
-                  checked={verified}
-                  onChange={e => setVerified(e.target.checked)}
-                  className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500"
+                  id="input-receipt-num"
+                  type="text"
+                  placeholder={
+                    mainCategory === 'vendor_payments'
+                      ? 'e.g. Inv # 8421, Bill # 550'
+                      : mainCategory === 'market_payments'
+                      ? 'e.g. Khata Slip # 104, Bilty # 77'
+                      : 'e.g. Receipt # 9250644, 4359'
+                  }
+                  value={receiptNumber}
+                  onChange={e => setReceiptNumber(e.target.value)}
+                  className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-semibold text-stone-800 focus:bg-white focus:border-amber-600 outline-hidden"
                 />
-                <span className="text-xs font-bold text-stone-800 flex items-center gap-1">
-                  <span>Mark as Verified (✓)</span>
-                  <span className="text-stone-400 font-normal text-[11px]">(Ledger Tick)</span>
-                </span>
-              </label>
+              </div>
+
+              {/* Payment Source: Cash Drawer vs Safe Vault vs Bank Online */}
+              <div className="md:col-span-1">
+                <label className="block text-xs font-bold text-stone-700 mb-1.5">
+                  Paid From
+                </label>
+                <div className="grid grid-cols-3 gap-1 p-1 bg-stone-100 rounded-lg">
+                  <button
+                    type="button"
+                    id="btn-out-mode-cash"
+                    onClick={() => {
+                      setOutSource('drawer');
+                      setPaymentMode('cash');
+                      if (category.includes('Safe Transfer to Individual')) {
+                        setCategory(EXPENSE_CATEGORIES[0]);
+                      }
+                    }}
+                    className={`py-1 px-1.5 rounded-md text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                      outSource === 'drawer'
+                        ? 'bg-white text-amber-900 shadow-xs border border-amber-200'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    <span>Cash Drawer</span>
+                  </button>
+                  <button
+                    type="button"
+                    id="btn-out-mode-safe"
+                    onClick={() => {
+                      setOutSource('safe');
+                      setPaymentMode('online'); // Keep drawer float untouched
+                      if (mainCategory === 'expenses') {
+                        setCategory('Safe Transfer to Individual');
+                      }
+                    }}
+                    className={`py-1 px-1.5 rounded-md text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                      outSource === 'safe' || category.includes('Safe Transfer to Individual')
+                        ? 'bg-purple-600 text-white shadow-xs font-bold'
+                        : 'text-purple-700 hover:text-purple-900 hover:bg-purple-50'
+                    }`}
+                    title="Disburse cash directly from Safe Vault"
+                  >
+                    <Lock className="w-3 h-3 shrink-0" />
+                    <span>Safe Vault</span>
+                  </button>
+                  <button
+                    type="button"
+                    id="btn-out-mode-online"
+                    onClick={() => {
+                      setOutSource('bank');
+                      setPaymentMode('online');
+                      if (category.includes('Safe Transfer to Individual')) {
+                        setCategory(EXPENSE_CATEGORIES[0]);
+                      }
+                    }}
+                    className={`py-1 px-1.5 rounded-md text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                      outSource === 'bank'
+                        ? 'bg-amber-700 text-white shadow-xs'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    <span>Bank Online</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* Description */}
-            <div className="md:col-span-3">
-              <label htmlFor="input-out-description" className="block text-xs font-bold text-stone-700 mb-1">
-                Particulars / Payee Note
-              </label>
-              <input
-                id="input-out-description"
-                type="text"
-                placeholder="e.g. Freight delivery cargo (2 pkgs), Bykea delivery, Nakash tea, Saqib Electric"
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-                className="w-full px-3 py-1.5 bg-stone-50 border border-stone-300 rounded-lg text-xs text-stone-800 focus:bg-white focus:border-amber-600 outline-hidden"
-              />
+            {/* SPECIALIZED PARTY NAME FOR VENDOR PAYMENTS */}
+            {mainCategory === 'vendor_payments' && (
+              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="input-vendor-name" className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+                    <Truck className="w-3.5 h-3.5 text-blue-700" />
+                    <span>Vendor / Supplier Name:</span>
+                  </label>
+                  <span className="text-[10px] text-blue-700 font-medium">Party / Company receiving payment</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] text-blue-700 font-medium">Quick Pick:</span>
+                  {COMMON_VENDORS.map(v => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setPartyName(v)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors cursor-pointer border ${
+                        partyName === v
+                          ? 'bg-blue-700 text-white border-blue-800 font-bold'
+                          : 'bg-white text-stone-700 border-blue-200 hover:bg-blue-100/60'
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  id="input-vendor-name"
+                  type="text"
+                  placeholder="e.g. Saqib Electric, Diamond Cables, Factory Supplier..."
+                  value={partyName}
+                  onChange={e => setPartyName(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-white border border-blue-300 rounded-lg text-xs font-semibold text-stone-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-hidden"
+                />
+              </div>
+            )}
+
+            {/* SPECIALIZED PARTY NAME FOR MARKET PAYMENTS (CREDITOR) */}
+            {mainCategory === 'market_payments' && (
+              <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-xl space-y-2 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="input-creditor-name" className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                    <Store className="w-3.5 h-3.5 text-purple-700" />
+                    <span>Market Creditor / Party Name:</span>
+                    <span className="text-[10px] bg-purple-200/80 text-purple-900 px-1.5 py-0.2 rounded font-normal">Creditor</span>
+                  </label>
+                  <span className="text-[10px] text-purple-700 font-medium">Wholesale Market Creditor / Udhaar Account</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] text-purple-700 font-medium">Quick Pick:</span>
+                  {COMMON_MARKET_CREDITORS.map(cred => (
+                    <button
+                      key={cred}
+                      type="button"
+                      onClick={() => setPartyName(cred)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors cursor-pointer border ${
+                        partyName === cred
+                          ? 'bg-purple-700 text-white border-purple-800 font-bold'
+                          : 'bg-white text-stone-700 border-purple-200 hover:bg-purple-100/60'
+                      }`}
+                    >
+                      {cred}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  id="input-creditor-name"
+                  type="text"
+                  placeholder="e.g. Akbari Mandi Creditor, Shah Alam Creditor, Wholesale Distributor..."
+                  value={partyName}
+                  onChange={e => setPartyName(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-white border border-purple-300 rounded-lg text-xs font-semibold text-stone-900 focus:border-purple-600 focus:ring-1 focus:ring-purple-600 outline-hidden"
+                />
+              </div>
+            )}
+
+            {/* DEDICATED SAFE DISBURSEMENT PANEL */}
+            {(outSource === 'safe' || (mainCategory === 'expenses' && category.includes('Safe Transfer to Individual'))) && (
+              <div className="p-3.5 bg-purple-50/80 border border-purple-200 rounded-xl space-y-2.5 animate-in fade-in duration-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-2 text-xs font-bold text-purple-950">
+                    <div className="p-1 rounded bg-purple-200 text-purple-800">
+                      <Lock className="w-3.5 h-3.5" />
+                    </div>
+                    <span>
+                      {mainCategory === 'vendor_payments'
+                        ? 'Safe Vault ➔ Direct Vendor Payment'
+                        : mainCategory === 'market_payments'
+                        ? 'Safe Vault ➔ Direct Market Creditor Payment'
+                        : 'Cash Disbursed from Safe to Individual'}
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-mono font-bold bg-purple-100 text-purple-900 px-2 py-0.5 rounded border border-purple-300 self-start sm:self-auto">
+                    Safe Vault Total: {formatPKR(safeRunningBalance)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-purple-800 leading-snug">
+                  Cash is paid directly out of the Safe Vault. This outflow will deduct from Safe Vault funds and will <strong>not</strong> decrease counter drawer register cash.
+                </p>
+
+                {/* Recipient Individual Field (for Expenses safe transfer) */}
+                {mainCategory === 'expenses' && (
+                  <div>
+                    <label className="text-[11px] font-bold text-purple-950 block mb-1">
+                      Recipient Individual / Entity Name:
+                    </label>
+                    <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                      <span className="text-[10px] text-purple-700 font-medium">Quick Pick:</span>
+                      {['Owner Drawing', ...staffList.slice(0, 4)].map(rec => (
+                        <button
+                          key={rec}
+                          type="button"
+                          onClick={() => setSalesperson(rec)}
+                          className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors cursor-pointer border ${
+                            salesperson === rec
+                              ? 'bg-purple-700 text-white border-purple-800 font-bold'
+                              : 'bg-white text-stone-700 border-purple-200 hover:bg-purple-100/60'
+                          }`}
+                        >
+                          {rec}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="e.g. Partner / Owner Drawing, Abdullah, Contractor, Vendor..."
+                      value={salesperson}
+                      onChange={e => setSalesperson(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-white border border-purple-300 rounded-lg text-xs font-semibold text-stone-900 focus:border-purple-600 focus:ring-1 focus:ring-purple-600 outline-hidden"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+              {/* Description / Particulars */}
+              <div className="md:col-span-2">
+                <label htmlFor="input-out-description" className="block text-xs font-bold text-stone-700 mb-1">
+                  {(outSource === 'safe' || category.includes('Safe Transfer to Individual'))
+                    ? 'Purpose / Particulars (e.g. Monthly Partner Drawing, Salary Advance)'
+                    : 'Particulars / Payee Note'}
+                </label>
+                <input
+                  id="input-out-description"
+                  type="text"
+                  placeholder={(outSource === 'safe' || category.includes('Safe Transfer to Individual'))
+                    ? "e.g. Partner Drawing, Staff Advance Salary, Loan Handover"
+                    : "e.g. Freight delivery cargo (2 pkgs), Bykea delivery, Nakash tea, Saqib Electric"}
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-stone-50 border border-stone-300 rounded-lg text-xs text-stone-800 focus:bg-white focus:border-amber-600 outline-hidden"
+                />
+              </div>
+
+              {/* Verified (✓) Toggle */}
+              <div className="md:col-span-1 flex flex-col justify-end">
+                <label
+                  htmlFor="checkbox-verified"
+                  className="flex items-center gap-2 px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg cursor-pointer hover:bg-stone-100 transition-colors"
+                >
+                  <input
+                    id="checkbox-verified"
+                    type="checkbox"
+                    checked={verified}
+                    onChange={e => setVerified(e.target.checked)}
+                    className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500 cursor-pointer"
+                  />
+                  <span className="text-xs font-bold text-stone-800 flex items-center gap-1">
+                    <span>Mark as Verified (✓)</span>
+                    <span className="text-stone-400 font-normal text-[11px]">(Ledger Tick)</span>
+                  </span>
+                </label>
+              </div>
             </div>
           </div>
         )}

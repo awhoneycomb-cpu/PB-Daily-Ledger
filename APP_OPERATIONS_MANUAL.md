@@ -142,9 +142,15 @@ When counter cash runs low and you need change from the safe:
    * Click **Transfer to Safe Now**.
    * Cash is credited to the Safe Vault and deducted from the live drawer register, marked as `[Drawer ➔ Safe]`.
 3. **Safe to Bank Deposits:**
-   * If cash is taken from the vault to deposit into the bank (e.g. Meezan Bank, HBL, Bank Alfalah), open the **Safe to Bank** section.
+   * If cash is taken from the vault to deposit into the bank (e.g. Askari Bank, HBL, Bank Alfalah), open the **Safe to Bank** section.
    * Enter the deposit amount, select the bank name, and input the bank deposit **Receipt #**.
    * Click **Deposit to Bank**. Safe vault cash is reduced, and the deposit is recorded in the ledger without affecting the counter drawer.
+4. **Cash Transferred from Safe to Any Individual (Owner / Partner / Staff / Vendor):**
+   * Accessible via **Cash Safe Manager** (Tab: `Safe ➔ Individual`) or directly from the **Transaction Intake Form** (Select `Paid From: Safe Vault` or Category: `Safe Transfer to Individual`).
+   * Select the recipient person (Owner Drawing, staff member, contractor, or vendor).
+   * Specify the purpose (e.g. Partner Drawing, Salary Advance, Loan Handover, Vendor Payment, Kameti Payout).
+   * Enter amount and optional voucher/slip number.
+   * **Accounting Result:** Cash is deducted directly from Safe Vault funds and recorded cleanly in the ledger under `[Safe ➔ Individual]`, while counter register drawer float remains strictly untouched. Reversing or deleting this transfer automatically restores the funds back into the Safe Vault.
 
 ---
 

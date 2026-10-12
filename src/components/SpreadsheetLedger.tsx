@@ -24,9 +24,13 @@ import {
   Lock,
   ArrowDownToLine,
   ArrowUpRight,
-  Landmark
+  Landmark,
+  User,
+  Truck,
+  Store,
+  Briefcase
 } from 'lucide-react';
-import { Transaction, isInternalTransferTransaction } from '../types';
+import { Transaction, isInternalTransferTransaction, getMainCashOutCategory } from '../types';
 import { formatPKR, exportToExcel, exportToCSV } from '../utils/exportSpreadsheet';
 
 interface SpreadsheetLedgerProps {
@@ -395,7 +399,18 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-medium text-stone-900">{item.description}</span>
                           {(item.isInternalTransfer || isInternalTransferTransaction(item)) && (
-                            item.transferDestination === 'bank' || item.description.toLowerCase().includes('bank') ? (
+                            item.transferDestination === 'individual' ||
+                            (item.category && item.category.toLowerCase().includes('individual')) ||
+                            (item.description && (
+                              item.description.toLowerCase().includes('handover to') ||
+                              item.description.toLowerCase().includes('safe cash to') ||
+                              item.description.toLowerCase().includes('safe to individual')
+                            )) ||
+                            (item.transferSource === 'safe' && item.type === 'cash_out' && item.transferDestination !== 'bank' && item.transferDestination !== 'safe') ? (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-purple-900 bg-purple-100 px-1.5 py-0.2 rounded border border-purple-200">
+                                <User className="w-2.5 h-2.5 text-purple-700" /> Safe ➔ {item.salesperson || 'Individual'}
+                              </span>
+                            ) : item.transferDestination === 'bank' || item.description.toLowerCase().includes('bank') ? (
                               <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-blue-900 bg-blue-100 px-1.5 py-0.2 rounded border border-blue-200">
                                 <Landmark className="w-2.5 h-2.5 text-blue-700" /> Safe ➔ Bank
                               </span>
@@ -407,9 +422,24 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                           )}
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-stone-500 mt-0.5">
+                          {/* Main Category Badges */}
+                          {getMainCashOutCategory(item) === 'vendor_payments' ? (
+                            <span className="inline-flex items-center gap-0.5 bg-blue-100 text-blue-900 border border-blue-200 font-bold px-1.5 py-0.2 rounded">
+                              <Truck className="w-2.5 h-2.5 text-blue-700" /> Vendor: {item.partyName || 'Supplier'}
+                            </span>
+                          ) : getMainCashOutCategory(item) === 'market_payments' ? (
+                            <span className="inline-flex items-center gap-0.5 bg-purple-100 text-purple-900 border border-purple-200 font-bold px-1.5 py-0.2 rounded">
+                              <Store className="w-2.5 h-2.5 text-purple-700" /> Market Creditor: {item.partyName || 'Creditor'}
+                            </span>
+                          ) : !item.isInternalTransfer && !isInternalTransferTransaction(item) ? (
+                            <span className="bg-amber-100/80 text-amber-900 font-semibold px-1.5 py-0.2 rounded border border-amber-200/60">
+                              Expense
+                            </span>
+                          ) : null}
+
                           {(item.receiptNumber || item.biltyNumber || (item.isInternalTransfer && item.billNumber)) && (
-                            <span className="bg-amber-100 text-amber-900 font-semibold px-1 rounded font-mono">
-                              Receipt #{item.receiptNumber || item.biltyNumber || item.billNumber}
+                            <span className="bg-stone-100 text-stone-800 font-semibold px-1 rounded font-mono border border-stone-200">
+                              Ref #{item.receiptNumber || item.biltyNumber || item.billNumber}
                             </span>
                           )}
                           <span>{item.category?.split('(')[0].trim()}</span>
@@ -832,7 +862,18 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                       ) : (
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {t.isInternalTransfer || isInternalTransferTransaction(t) ? (
-                            t.transferDestination === 'bank' || t.description.toLowerCase().includes('bank') ? (
+                            t.transferDestination === 'individual' ||
+                            (t.category && t.category.toLowerCase().includes('individual')) ||
+                            (t.description && (
+                              t.description.toLowerCase().includes('handover to') ||
+                              t.description.toLowerCase().includes('safe cash to') ||
+                              t.description.toLowerCase().includes('safe to individual')
+                            )) ||
+                            (t.transferSource === 'safe' && t.type === 'cash_out' && t.transferDestination !== 'bank' && t.transferDestination !== 'safe') ? (
+                              <span className="bg-purple-100 text-purple-900 border border-purple-300 font-bold px-2 py-0.5 rounded text-[10px] inline-flex items-center gap-1">
+                                <User className="w-2.5 h-2.5 text-purple-700" /> Safe ➔ {t.salesperson || 'Individual'}
+                              </span>
+                            ) : t.transferDestination === 'bank' || t.description.toLowerCase().includes('bank') ? (
                               <span className="bg-blue-100 text-blue-900 border border-blue-300 font-bold px-2 py-0.5 rounded text-[10px] inline-flex items-center gap-1">
                                 <Landmark className="w-2.5 h-2.5 text-blue-700" /> Safe ➔ Bank
                               </span>
@@ -841,9 +882,17 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                                 <ArrowDownToLine className="w-2.5 h-2.5 text-emerald-700" /> Drawer ➔ Safe
                               </span>
                             )
+                          ) : getMainCashOutCategory(t) === 'vendor_payments' ? (
+                            <span className="bg-blue-100 text-blue-800 border border-blue-200 font-bold px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1">
+                              <Truck className="w-3 h-3 text-blue-700" /> Vendor Payment
+                            </span>
+                          ) : getMainCashOutCategory(t) === 'market_payments' ? (
+                            <span className="bg-purple-100 text-purple-900 border border-purple-200 font-bold px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1">
+                              <Store className="w-3 h-3 text-purple-700" /> Market Creditor
+                            </span>
                           ) : (
                             <span className="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded text-[11px]">
-                              Cash Out
+                              Expense
                             </span>
                           )}
                         </div>
@@ -862,7 +911,18 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                             : (t.salesperson || 'Counter'))
                         : (t.isInternalTransfer || isInternalTransferTransaction(t))
                         ? (
-                          t.transferDestination === 'bank' || t.description.toLowerCase().includes('bank') ? (
+                          t.transferDestination === 'individual' ||
+                          (t.category && t.category.toLowerCase().includes('individual')) ||
+                          (t.description && (
+                            t.description.toLowerCase().includes('handover to') ||
+                            t.description.toLowerCase().includes('safe cash to') ||
+                            t.description.toLowerCase().includes('safe to individual')
+                          )) ||
+                          (t.transferSource === 'safe' && t.type === 'cash_out' && t.transferDestination !== 'bank' && t.transferDestination !== 'safe') ? (
+                            <span className="inline-flex items-center gap-1 text-purple-900 font-semibold">
+                              <User className="w-3 h-3 text-purple-600" /> {t.salesperson || 'Individual'}
+                            </span>
+                          ) : t.transferDestination === 'bank' || t.description.toLowerCase().includes('bank') ? (
                             <span className="inline-flex items-center gap-1 text-blue-900 font-semibold">
                               <Landmark className="w-3 h-3 text-blue-600" /> Safe ➔ Bank
                             </span>
@@ -872,7 +932,17 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                             </span>
                           )
                         )
-                        : (t.category?.split('(')[0] || 'Expense')}
+                        : getMainCashOutCategory(t) === 'vendor_payments' ? (
+                          <span className="inline-flex items-center gap-1 text-blue-950 font-bold">
+                            <Truck className="w-3.5 h-3.5 text-blue-600" /> {t.partyName || 'Vendor'}
+                          </span>
+                        ) : getMainCashOutCategory(t) === 'market_payments' ? (
+                          <span className="inline-flex items-center gap-1 text-purple-950 font-bold">
+                            <Store className="w-3.5 h-3.5 text-purple-600" /> {t.partyName || 'Market Creditor'}
+                          </span>
+                        ) : (
+                          t.category?.split('(')[0] || 'Expense'
+                        )}
                     </td>
                     <td className="py-2 px-3 font-mono font-bold text-stone-800">
                       {t.isRefund ? (

@@ -17,7 +17,7 @@ export interface FilterState {
   salesperson: string;
   startDate: string;
   endDate: string;
-  type: 'all' | 'cash_in' | 'cash_out' | 'online' | 'internal_transfer';
+  type: 'all' | 'cash_in' | 'cash_out' | 'online' | 'internal_transfer' | 'safe_to_individual' | 'expenses' | 'vendor_payments' | 'market_payments';
   dateScope?: 'active_day' | 'all';
 }
 
@@ -92,7 +92,7 @@ export const TransactionFilterBar: React.FC<TransactionFilterBarProps> = ({
       const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
       onFilterChange({ startDate: formatLocalDate(firstDay), endDate: todayStr });
     } else if (preset === 'all') {
-      onFilterChange({ startDate: '', endDate: '' });
+      onFilterChange({ startDate: '', endDate: '', dateScope: 'all' });
     }
   };
 
@@ -332,9 +332,13 @@ export const TransactionFilterBar: React.FC<TransactionFilterBarProps> = ({
             >
               <option value="all">All Types</option>
               <option value="cash_in">Cash In (Sales)</option>
-              <option value="cash_out">Cash Out (Expense)</option>
+              <option value="cash_out">All Cash Out</option>
+              <option value="expenses">1. Expenses (Operating)</option>
+              <option value="vendor_payments">2. Vendor Payments</option>
+              <option value="market_payments">3. Market Payments (Creditor)</option>
+              <option value="safe_to_individual">Safe ➔ Individual Transfers</option>
+              <option value="internal_transfer">All Internal Transfers</option>
               <option value="online">Online Transfers</option>
-              <option value="internal_transfer">Transfers (Safe / Bank)</option>
             </select>
           </div>
         </div>
@@ -390,7 +394,25 @@ export const TransactionFilterBar: React.FC<TransactionFilterBarProps> = ({
 
             {filters.type !== 'all' && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-emerald-300 rounded text-stone-700 text-[11px]">
-                <span>Type: {filters.type === 'cash_in' ? 'Cash In' : filters.type === 'cash_out' ? 'Cash Out' : 'Online Transfers'}</span>
+                <span>
+                  Type: {
+                    filters.type === 'cash_in' 
+                      ? 'Cash In' 
+                      : filters.type === 'cash_out' 
+                      ? 'Cash Out' 
+                      : filters.type === 'expenses'
+                      ? '1. Expenses'
+                      : filters.type === 'vendor_payments'
+                      ? '2. Vendor Payments'
+                      : filters.type === 'market_payments'
+                      ? '3. Market Payments (Creditor)' 
+                      : filters.type === 'safe_to_individual'
+                      ? 'Safe ➔ Individual'
+                      : filters.type === 'internal_transfer'
+                      ? 'Internal Transfers'
+                      : 'Online Transfers'
+                  }
+                </span>
                 <button
                   type="button"
                   onClick={() => onFilterChange({ type: 'all' })}

@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Daily Cash Book & Sales Ledger</title>
-    <meta name="description" content="Real-time cash in and cash out sales tracker with instant multi-tab Excel (.xlsx) export, denomination counter, and Pakistani Rupee (PKR) ledger." />
+    <meta name="description" content="Real-time cash in and cash out sales tracker with instant multi-tab Excel (.xlsx) download, denomination counter, and Pakistani Rupee (PKR) ledger." />
     <meta property="og:title" content="Daily Cash Book & Sales Ledger" />
-    <meta property="og:description" content="Real-time cash in and cash out sales tracker with instant multi-tab Excel (.xlsx) export, denomination counter, and Pakistani Rupee (PKR) ledger." />
+    <meta property="og:description" content="Real-time cash in and cash out sales tracker with instant multi-tab Excel (.xlsx) download, denomination counter, and Pakistani Rupee (PKR) ledger." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="theme-color" content="#047857" />
@@ -21,16 +21,35 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background-color: #0f172a; color: #94a3b8; font-family: sans-serif;">
+        <div style="text-align: center;">
+          <div style="width: 36px; height: 36px; border: 3px solid #059669; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 12px;"></div>
+          <p style="font-size: 14px; font-weight: 500; color: #f8fafc;">Daily Cash Book &amp; Sales Ledger</p>
+          <p style="font-size: 12px; color: #64748b; margin-top: 4px;">Loading ledger...</p>
+        </div>
+      </div>
+      <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch((err) => {
-            console.log('SW registration note:', err);
+      (function() {
+        if ('serviceWorker' in navigator) {
+          // Unregister any active service worker and clear stale caches in AI Studio preview environments
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            for (var i = 0; i < registrations.length; i++) {
+              registrations[i].unregister();
+            }
           });
-        });
-      }
+          if ('caches' in window) {
+            caches.keys().then(function(names) {
+              for (var j = 0; j < names.length; j++) {
+                caches.delete(names[j]);
+              }
+            });
+          }
+        }
+      })();
     </script>
   </body>
 </html>

@@ -8,9 +8,12 @@ import {
   Check, 
   TrendingUp, 
   PlusCircle, 
-  DollarSign 
+  DollarSign,
+  Truck,
+  Store,
+  Briefcase 
 } from 'lucide-react';
-import { Transaction } from '../types';
+import { Transaction, getMainCashOutCategory } from '../types';
 import { formatPKR } from '../utils/exportSpreadsheet';
 import { CashFlowTrendChart } from './CashFlowTrendChart';
 
@@ -52,6 +55,9 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
     totalOperatingExpenses,
     totalOnlineExpenses,
     totalPhysicalExpenses,
+    totalExpensesCategory,
+    totalVendorPayments,
+    totalMarketPayments,
     totalSafeInjections,
     totalSafeHandovers,
     totalBankDeposits,
@@ -70,6 +76,10 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
     let opExpenses = 0;
     let onlineExp = 0;
     let physicalExp = 0;
+
+    let totalExpensesCategory = 0;
+    let totalVendorPayments = 0;
+    let totalMarketPayments = 0;
 
     let safeInjections = 0;
     let safeHandovers = 0;
@@ -113,6 +123,15 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
         } else {
           expTx.push(t);
           opExpenses += t.amount;
+          const mainCat = getMainCashOutCategory(t);
+          if (mainCat === 'vendor_payments') {
+            totalVendorPayments += t.amount;
+          } else if (mainCat === 'market_payments') {
+            totalMarketPayments += t.amount;
+          } else {
+            totalExpensesCategory += t.amount;
+          }
+
           if (t.paymentMode === 'online') {
             onlineExp += t.amount;
           } else {
@@ -137,6 +156,9 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
       totalOperatingExpenses: opExpenses,
       totalOnlineExpenses: onlineExp,
       totalPhysicalExpenses: physicalExp,
+      totalExpensesCategory,
+      totalVendorPayments,
+      totalMarketPayments,
       totalSafeInjections: safeInjections,
       totalSafeHandovers: safeHandovers,
       totalBankDeposits: bankDeposits,
@@ -215,6 +237,32 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
               )}
             </span>
           </div>
+          {/* 3 Main Categories Breakdown */}
+          {totalOperatingExpenses > 0 && (
+            <div className="mt-2 pt-2 border-t border-stone-100 space-y-1 text-[11px]">
+              <div className="flex items-center justify-between text-stone-600">
+                <span className="flex items-center gap-1">
+                  <Briefcase className="w-3 h-3 text-amber-600" />
+                  <span>1. Expenses:</span>
+                </span>
+                <span className="font-mono font-semibold text-stone-800">{formatPKR(totalExpensesCategory)}</span>
+              </div>
+              <div className="flex items-center justify-between text-stone-600">
+                <span className="flex items-center gap-1">
+                  <Truck className="w-3 h-3 text-blue-600" />
+                  <span>2. Vendor Payments:</span>
+                </span>
+                <span className="font-mono font-semibold text-blue-900">{formatPKR(totalVendorPayments)}</span>
+              </div>
+              <div className="flex items-center justify-between text-stone-600">
+                <span className="flex items-center gap-1">
+                  <Store className="w-3 h-3 text-purple-600" />
+                  <span>3. Market Creditor:</span>
+                </span>
+                <span className="font-mono font-semibold text-purple-900">{formatPKR(totalMarketPayments)}</span>
+              </div>
+            </div>
+          )}
           {(totalSafeHandovers > 0 || totalBankDeposits > 0) && (
             <div className="mt-1.5 pt-1 border-t border-dashed border-stone-200 text-[11px] text-stone-500 flex items-center justify-between">
               <span>Transfers:</span>

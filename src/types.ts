@@ -3,7 +3,9 @@ export type TransactionType = 'cash_in' | 'cash_out';
 export type PaymentMode = 'cash' | 'online';
 
 export type TransferSource = 'safe' | 'owner_capital' | 'bank_withdrawal' | 'drawer' | 'bank' | 'other';
-export type TransferDestination = 'safe' | 'bank' | 'drawer';
+export type TransferDestination = 'safe' | 'bank' | 'drawer' | 'individual';
+
+export type MainCashOutCategory = 'expenses' | 'vendor_payments' | 'market_payments';
 
 export interface Transaction {
   id: string;
@@ -23,7 +25,9 @@ export interface Transaction {
   transferDestination?: TransferDestination;
   
   // Cash Out specific
-  category?: string; // Freight, Logistics, Refreshment, Vendor, Drawing, Fuel, etc.
+  mainCategory?: MainCashOutCategory; // 'expenses' | 'vendor_payments' | 'market_payments'
+  partyName?: string; // Vendor name or Creditor name (for vendor payments / market creditor payments)
+  category?: string; // Specific subcategory / category
   description: string; // Particulars / Description
   receiptNumber?: string; // Receipt / Voucher / Reference number
   biltyNumber?: string; // Backward compatibility alias for receipt number
@@ -112,8 +116,8 @@ export const isInternalTransferTransaction = (t: Transaction): boolean => {
   // If explicitly marked as an internal transfer
   if (t.isInternalTransfer === true) return true;
 
-  // Only consider transfer destinations if moving to safe vault or bank
-  if (t.transferDestination === 'safe' || t.transferDestination === 'bank') return true;
+  // Only consider transfer destinations if moving to safe vault, bank, or individual
+  if (t.transferDestination === 'safe' || t.transferDestination === 'bank' || t.transferDestination === 'individual') return true;
 
   // Only consider transfer source if cash originates from safe vault or capital injection
   if (t.transferSource === 'safe' || t.transferSource === 'owner_capital' || t.transferSource === 'bank_withdrawal') return true;
@@ -123,6 +127,9 @@ export const isInternalTransferTransaction = (t: Transaction): boolean => {
     cat.includes('internal transfer') ||
     cat.includes('transfer to safe') ||
     cat.includes('safe vault') ||
+    cat.includes('safe transfer') ||
+    cat.includes('safe ➔') ||
+    cat.includes('safe to individual') ||
     cat.includes('bank deposit (from drawer)') ||
     cat.includes('drawer handover')
   ) return true;
@@ -138,10 +145,46 @@ export const isInternalTransferTransaction = (t: Transaction): boolean => {
     desc.includes('handover to safe') ||
     desc.includes('deposit to bank') ||
     desc.includes('bank deposit') ||
-    desc.includes('safe to bank')
+    desc.includes('safe to bank') ||
+    desc.includes('safe to individual') ||
+    desc.includes('safe cash to') ||
+    desc.includes('safe ➔')
   ) return true;
 
   return false;
+};
+
+export const getMainCashOutCategory = (t: Transaction): MainCashOutCategory | 'internal_transfer' => {
+  if (t.isInternalTransfer || isInternalTransferTransaction(t)) {
+    return 'internal_transfer';
+  }
+  if (t.mainCategory) {
+    return t.mainCategory;
+  }
+  const cat = (t.category || '').toLowerCase();
+  const desc = (t.description || '').toLowerCase();
+
+  if (
+    cat.includes('market') || 
+    cat.includes('creditor') || 
+    cat.includes('udhaar') || 
+    desc.includes('market payment') || 
+    desc.includes('creditor') ||
+    desc.includes('market creditor')
+  ) {
+    return 'market_payments';
+  }
+
+  if (
+    cat.includes('vendor') || 
+    cat.includes('supplier') || 
+    desc.includes('vendor payment') || 
+    desc.includes('supplier')
+  ) {
+    return 'vendor_payments';
+  }
+
+  return 'expenses';
 };
 
 
