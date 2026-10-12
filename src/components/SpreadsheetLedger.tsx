@@ -28,10 +28,12 @@ import {
   User,
   Truck,
   Store,
-  Briefcase
+  Briefcase,
+  Pencil
 } from 'lucide-react';
 import { Transaction, isInternalTransferTransaction, getMainCashOutCategory } from '../types';
 import { formatPKR, exportToExcel, exportToCSV } from '../utils/exportSpreadsheet';
+import { EditTransactionModal } from './EditTransactionModal';
 
 interface SpreadsheetLedgerProps {
   transactions: Transaction[];
@@ -67,6 +69,7 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
   denominations
 }) => {
   const [viewMode, setViewMode] = useState<'book' | 'table'>('book');
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
   // Pagination states
   const [pageSize, setPageSize] = useState<number | 'all'>(50);
@@ -447,16 +450,26 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                         </div>
                       </td>
 
-                      {/* Delete */}
-                      <td className="py-2 px-1 text-center">
-                        <button
-                          type="button"
-                          onClick={() => onDeleteTransaction(item.id)}
-                          className="opacity-0 group-hover:opacity-100 text-stone-400 hover:text-rose-600 transition-all p-1"
-                          title="Delete entry"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      {/* Edit & Delete Actions */}
+                      <td className="py-2 px-1 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            type="button"
+                            onClick={() => setEditingTransaction(item)}
+                            className="p-1 rounded text-stone-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
+                            title="Edit entry"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteTransaction(item.id)}
+                            className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Delete entry"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -604,16 +617,26 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                               )}
                             </td>
 
-                            {/* Delete */}
-                            <td className="py-1.5 px-1 text-center">
-                              <button
-                                type="button"
-                                onClick={() => onDeleteTransaction(item.id)}
-                                className="opacity-0 group-hover:opacity-100 text-stone-400 hover:text-rose-600 transition-all p-1"
-                                title="Delete entry"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                            {/* Edit & Delete Actions */}
+                            <td className="py-1.5 px-1 text-center whitespace-nowrap">
+                              <div className="flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingTransaction(item)}
+                                  className="p-1 rounded text-stone-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
+                                  title="Edit entry"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteTransaction(item.id)}
+                                  className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                  title="Delete entry"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -661,15 +684,25 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                             <td className="py-1.5 px-2 text-right font-mono font-bold text-indigo-800">
                               +{item.amount.toLocaleString()}/-
                             </td>
-                            <td className="py-1.5 px-1 text-center">
-                              <button
-                                type="button"
-                                onClick={() => onDeleteTransaction(item.id)}
-                                className="opacity-0 group-hover:opacity-100 text-stone-400 hover:text-rose-600 transition-all p-1 cursor-pointer"
-                                title="Delete entry"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                            <td className="py-1.5 px-1 text-center whitespace-nowrap">
+                              <div className="flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingTransaction(item)}
+                                  className="p-1 rounded text-stone-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
+                                  title="Edit entry"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteTransaction(item.id)}
+                                  className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                  title="Delete entry"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -802,7 +835,7 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                 <th className="py-2.5 px-3">Particulars / Description</th>
                 <th className="py-2.5 px-3 text-right">Amount (PKR)</th>
                 <th className="py-2.5 px-2 text-center w-12">Verified</th>
-                <th className="py-2.5 px-2 text-center w-12">Action</th>
+                <th className="py-2.5 px-2 text-center w-20">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-200">
@@ -813,9 +846,11 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                 return (
                   <tr 
                     key={t.id} 
-                    className={`hover:bg-stone-50 transition-colors ${
+                    onDoubleClick={() => setEditingTransaction(t)}
+                    className={`hover:bg-amber-100/30 transition-colors cursor-pointer group ${
                       t.type === 'cash_in' ? 'bg-emerald-50/15' : 'bg-amber-50/15'
                     }`}
+                    title="Double-click to edit entry"
                   >
                     <td className="py-2 px-3 text-stone-400 font-mono">{globalIndex}</td>
                     <td className="py-2 px-3 whitespace-nowrap text-stone-600">
@@ -1011,15 +1046,27 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                         {t.verified ? '✓' : '-'}
                       </button>
                     </td>
-                    <td className="py-2 px-2 text-center">
-                      <button
-                        type="button"
-                        onClick={() => onDeleteTransaction(t.id)}
-                        className="text-stone-400 hover:text-rose-600 p-1 transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <td className="py-2 px-2 text-center whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          id={`btn-edit-transaction-${t.id}`}
+                          onClick={() => setEditingTransaction(t)}
+                          className="p-1.5 rounded-md text-stone-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
+                          title="Edit entry"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          id={`btn-delete-transaction-${t.id}`}
+                          onClick={() => onDeleteTransaction(t.id)}
+                          className="p-1.5 rounded-md text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="Delete entry"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -1126,6 +1173,20 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Edit Transaction Modal */}
+      <EditTransactionModal
+        isOpen={!!editingTransaction}
+        transaction={editingTransaction}
+        onClose={() => setEditingTransaction(null)}
+        onSave={(id, updates) => {
+          if (onUpdateTransaction) {
+            onUpdateTransaction(id, updates);
+          }
+          setEditingTransaction(null);
+        }}
+        staffList={staffList}
+      />
     </div>
   );
 };

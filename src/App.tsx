@@ -1051,6 +1051,57 @@ export default function App() {
   };
 
   const handleUpdateTransaction = (id: string, updates: Partial<Transaction>) => {
+    const oldTx = transactions.find(t => t.id === id);
+    if (oldTx && updates.amount !== undefined && updates.amount !== oldTx.amount) {
+      const diff = updates.amount - oldTx.amount;
+      if (oldTx.isInternalTransfer || isInternalTransferTransaction(oldTx)) {
+        // Safe to Individual: amount increased means more cash taken from safe
+        if (
+          oldTx.type === 'cash_out' &&
+          (oldTx.transferDestination === 'individual' ||
+           oldTx.category?.toLowerCase().includes('individual') ||
+           oldTx.description.toLowerCase().includes('safe cash to') ||
+           oldTx.description.toLowerCase().includes('safe to individual')) &&
+          oldTx.transferSource === 'safe'
+        ) {
+          const newSafe = Math.max(0, safeRunningBalance - diff);
+          setSafeRunningBalance(newSafe);
+          syncSettingsToCloud({ safeRunningBalance: newSafe });
+        }
+        // Safe to Bank: amount increased means more cash taken from safe into bank
+        else if (
+          oldTx.type === 'cash_out' &&
+          (oldTx.transferDestination === 'bank' || oldTx.description.toLowerCase().includes('bank')) &&
+          oldTx.transferSource === 'safe'
+        ) {
+          const newSafe = Math.max(0, safeRunningBalance - diff);
+          setSafeRunningBalance(newSafe);
+          syncSettingsToCloud({ safeRunningBalance: newSafe });
+        }
+        // Drawer to Safe: amount increased means more cash went into safe
+        else if (
+          oldTx.type === 'cash_out' &&
+          (oldTx.transferDestination === 'safe' ||
+           oldTx.category?.includes('Transfer to Safe') ||
+           oldTx.category?.includes('Drawer ➔ Safe') ||
+           oldTx.description.toLowerCase().includes('drawer to safe'))
+        ) {
+          const newSafe = Math.max(0, safeRunningBalance + diff);
+          setSafeRunningBalance(newSafe);
+          syncSettingsToCloud({ safeRunningBalance: newSafe });
+        }
+        // Safe to Drawer: amount increased means more cash taken from safe
+        else if (
+          oldTx.type === 'cash_in' &&
+          (oldTx.transferSource === 'safe' || oldTx.description.toLowerCase().includes('safe to drawer'))
+        ) {
+          const newSafe = Math.max(0, safeRunningBalance - diff);
+          setSafeRunningBalance(newSafe);
+          syncSettingsToCloud({ safeRunningBalance: newSafe });
+        }
+      }
+    }
+
     setTransactions(prev =>
       prev.map(t => (t.id === id ? { ...t, ...updates } : t))
     );
