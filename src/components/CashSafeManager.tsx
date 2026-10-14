@@ -27,7 +27,10 @@ import { formatPKR } from '../utils/exportSpreadsheet';
 
 interface CashSafeManagerProps {
   safeRunningBalance: number;
-  onChangeSafeRunningBalance: (val: number) => void;
+  onChangeSafeRunningBalance: (val: number, date?: string, time?: string) => void;
+  safeRunningBalanceDate?: string;
+  safeRunningBalanceTime?: string;
+  onChangeSafeRunningBalanceDate?: (date: string) => void;
   safeTransferAmount: number;
   onChangeSafeTransferAmount: (val: number) => void;
   vaultDeposits: VaultDeposit[];
@@ -118,6 +121,9 @@ const VAULT_CATEGORIES: Array<{
 export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
   safeRunningBalance,
   onChangeSafeRunningBalance,
+  safeRunningBalanceDate,
+  safeRunningBalanceTime,
+  onChangeSafeRunningBalanceDate,
   safeTransferAmount,
   onChangeSafeTransferAmount,
   vaultDeposits,
@@ -146,6 +152,20 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
     safeTransferAmount > 0 ? String(safeTransferAmount) : ''
   );
   const [isSavedRecently, setIsSavedRecently] = useState<boolean>(false);
+
+  // Date and Time when Safe Running Balance was added / effective
+  const [balanceDateInput, setBalanceDateInput] = useState<string>(() => {
+    return safeRunningBalanceDate || selectedDate || new Date().toISOString().split('T')[0];
+  });
+
+  React.useEffect(() => {
+    if (safeRunningBalanceDate) {
+      setBalanceDateInput(safeRunningBalanceDate);
+    }
+  }, [safeRunningBalanceDate]);
+
+  // Search filter for safe audit trail (can search amounts like 2195000, 2262000, dates, or notes)
+  const [safeSearchQuery, setSafeSearchQuery] = useState<string>('');
 
   // Transfer Direction in Container 2: Drawer -> Safe vs Safe -> Drawer vs Safe -> Bank vs Safe -> Individual
   const [activeTransferDirection, setActiveTransferDirection] = useState<'drawer_to_safe' | 'safe_to_drawer' | 'safe_to_bank' | 'safe_to_person'>('drawer_to_safe');
@@ -187,15 +207,24 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
     }
   }, [safeToBankName]);
 
-  // New Deposit Form State
+  // New Deposit Form State with explicit Date field
   const [depositAmount, setDepositAmount] = useState<string>('');
   const [depositCategory, setDepositCategory] = useState<VaultDepositCategory>('committee');
   const [depositNotes, setDepositNotes] = useState<string>('');
+  const [depositDate, setDepositDate] = useState<string>(() => {
+    return selectedDate || new Date().toISOString().split('T')[0];
+  });
   const [depositTime, setDepositTime] = useState<string>(() => {
     const now = new Date();
     return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   });
   const [isDepositFormOpen, setIsDepositFormOpen] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    if (selectedDate) {
+      setDepositDate(selectedDate);
+    }
+  }, [selectedDate]);
 
   // Calculations
   const totalVaultDeposits = vaultDeposits.reduce((acc, d) => acc + d.amount, 0);
@@ -220,20 +249,32 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
   const handleRunningChange = (val: string) => {
     setRunningInput(val);
     const parsed = Math.max(0, parseFloat(val) || 0);
-    onChangeSafeRunningBalance(parsed);
+    const nowTime = new Date().toTimeString().slice(0, 5);
+    onChangeSafeRunningBalance(parsed, balanceDateInput || selectedDate, nowTime);
     triggerSaved();
+  };
+
+  const handleBalanceDateChange = (newDate: string) => {
+    setBalanceDateInput(newDate);
+    if (onChangeSafeRunningBalanceDate) {
+      onChangeSafeRunningBalanceDate(newDate);
+    }
+    onChangeSafeRunningBalance(safeRunningBalance, newDate);
+    triggerSaved();
+    onShowToast(`Vault baseline date set to ${newDate}`, 'info');
   };
 
   const handleQuickAddRunning = (add: number) => {
     const nextVal = (safeRunningBalance || 0) + add;
     setRunningInput(String(nextVal));
-    onChangeSafeRunningBalance(nextVal);
+    const nowTime = new Date().toTimeString().slice(0, 5);
+    onChangeSafeRunningBalance(nextVal, balanceDateInput || selectedDate, nowTime);
     triggerSaved();
   };
 
   const handleClearRunning = () => {
     setRunningInput('');
-    onChangeSafeRunningBalance(0);
+    onChangeSafeRunningBalance(0, balanceDateInput || selectedDate);
     triggerSaved();
   };
 
@@ -484,11 +525,11 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
       category: depositCategory,
       categoryLabel: categoryDef.label,
       notes: depositNotes.trim() || undefined,
-      date: selectedDate || new Date().toISOString().split('T')[0],
+      date: depositDate || selectedDate || new Date().toISOString().split('T')[0],
       time: depositTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
 
-    onShowToast(`Added ${formatPKR(amountNum)} (${categoryDef.label}) into the vault!`, 'success');
+    onShowToast(`Added ${formatPKR(amountNum)} (${categoryDef.label}) into the vault for ${depositDate || selectedDate}!`, 'success');
 
     // Reset deposit form
     setDepositAmount('');
@@ -500,12 +541,10 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
     setDepositAmount(String(current + val));
   };
 
-
-
-  // Filter all transfers in/out of the safe for the activity log
+  // Filter all transfers in/out of the safe for the activity log, with search support
   const safeActivities = React.useMemo(() => {
     if (!transactions) return [];
-    return transactions.filter(t => 
+    let list = transactions.filter(t => 
       t.isInternalTransfer ||
       t.transferSource === 'safe' ||
       t.transferDestination === 'safe' ||
@@ -523,7 +562,23 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
         t.description.toLowerCase().includes('safe ➔')
       ))
     );
-  }, [transactions]);
+
+    if (safeSearchQuery.trim()) {
+      const q = safeSearchQuery.trim().toLowerCase().replace(/,/g, '');
+      list = list.filter(t => {
+        const amtStr = String(t.amount).replace(/,/g, '');
+        return amtStr.includes(q) ||
+          (t.date && t.date.toLowerCase().includes(q)) ||
+          (t.time && t.time.toLowerCase().includes(q)) ||
+          (t.description && t.description.toLowerCase().includes(q)) ||
+          (t.notes && t.notes.toLowerCase().includes(q)) ||
+          (t.salesperson && t.salesperson.toLowerCase().includes(q)) ||
+          (t.category && t.category.toLowerCase().includes(q));
+      });
+    }
+
+    return list;
+  }, [transactions, safeSearchQuery]);
 
   // Finalize / Commit transfer into safe balance
   const handleFinalizeTransfer = () => {
@@ -653,7 +708,7 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
             </p>
 
             {/* Direct Input */}
-            <div className="relative mb-3">
+            <div className="relative mb-2.5">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-stone-400 select-none">
                 Rs.
               </span>
@@ -667,6 +722,38 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                 onChange={e => handleRunningChange(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-white border border-stone-300 rounded-lg text-base font-bold font-mono text-stone-900 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 outline-hidden transition-all shadow-2xs"
               />
+            </div>
+
+            {/* Added / Effective Date for this Vault Cash */}
+            <div className="bg-white border border-stone-200/90 rounded-lg p-2 mb-2.5 text-xs">
+              <div className="flex items-center justify-between gap-1 mb-1">
+                <span className="text-[10px] font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-1">
+                  <span>📅 Date Added / Effective:</span>
+                </span>
+                {balanceDateInput !== selectedDate && (
+                  <button
+                    type="button"
+                    onClick={() => handleBalanceDateChange(selectedDate)}
+                    className="text-[10px] text-indigo-600 hover:underline cursor-pointer font-semibold"
+                    title={`Set to active date (${selectedDate})`}
+                  >
+                    Set to {selectedDate}
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={balanceDateInput}
+                  onChange={e => handleBalanceDateChange(e.target.value)}
+                  className="w-full px-2 py-1 bg-stone-50 border border-stone-300 rounded text-xs font-mono font-bold text-stone-800 outline-hidden focus:bg-white focus:border-indigo-600"
+                />
+                {safeRunningBalanceTime && (
+                  <span className="text-[10px] font-mono text-stone-400 shrink-0">
+                    🕒 {safeRunningBalanceTime}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Quick Adjustment Chips */}
@@ -701,8 +788,13 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
           </div>
 
           <div className="mt-3 pt-2.5 border-t border-stone-200/70 text-[11px] text-stone-500 flex items-center justify-between">
-            <span>Vault Base:</span>
-            <strong className="font-mono text-stone-800 font-bold">{formatPKR(safeRunningBalance)}</strong>
+            <div>
+              <span>Vault Base:</span>
+              <span className="text-[10px] text-stone-400 font-mono block">
+                Added: {balanceDateInput || safeRunningBalanceDate || selectedDate}
+              </span>
+            </div>
+            <strong className="font-mono text-stone-800 font-bold text-sm">{formatPKR(safeRunningBalance)}</strong>
           </div>
         </div>
 
@@ -1381,7 +1473,12 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
             {/* Formula Math Breakdown */}
             <div className="mt-2.5 pt-2.5 border-t border-stone-800/80 space-y-1.5 text-xs text-stone-300">
               <div className="flex items-center justify-between text-stone-400">
-                <span>Safe Running Base:</span>
+                <div>
+                  <span>Safe Running Base:</span>
+                  <span className="text-[10px] text-stone-400 block font-mono">
+                    (Effective: {balanceDateInput || safeRunningBalanceDate || selectedDate})
+                  </span>
+                </div>
                 <span className="font-mono font-medium text-stone-200">{formatPKR(safeRunningBalance)}</span>
               </div>
               <div className="flex items-center justify-between text-emerald-400">
@@ -1440,7 +1537,7 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
 
       {/* LIVE SAFE TRANSFERS & ACTIVITY AUDIT TRAIL */}
       <div className="mb-5 bg-stone-50/80 border border-stone-200/90 rounded-xl p-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-stone-200/80 mb-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 pb-2.5 border-b border-stone-200/80 mb-3">
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-700">
               <History className="w-4 h-4" />
@@ -1460,13 +1557,58 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-xs flex-wrap">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search audit (e.g. 2195000)..."
+                value={safeSearchQuery}
+                onChange={e => setSafeSearchQuery(e.target.value)}
+                className="pl-2.5 pr-6 py-1 bg-white border border-stone-300 rounded-lg text-xs text-stone-800 placeholder-stone-400 outline-hidden w-44 sm:w-52 font-mono shadow-2xs focus:border-indigo-600"
+              />
+              {safeSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSafeSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
             <span className="text-stone-500 text-[11px]">Vault Status:</span>
-            <span className="font-mono font-bold text-stone-800 bg-white px-2 py-0.5 rounded border border-stone-200 text-xs">
+            <span className="font-mono font-bold text-stone-800 bg-white px-2 py-1 rounded border border-stone-200 text-xs shadow-2xs">
               Base: {formatPKR(safeRunningBalance)}
             </span>
           </div>
         </div>
+
+        {/* Highlight matching Vault Baseline if searched */}
+        {safeSearchQuery && String(safeRunningBalance).includes(safeSearchQuery.replace(/,/g, '')) && (
+          <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-3 flex items-center justify-between gap-3 shadow-2xs mb-2.5 animate-in fade-in">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-2 rounded-lg bg-amber-200 text-amber-900 shrink-0">
+                <ShieldCheck className="w-4 h-4 text-amber-800" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-200/90 text-amber-950 border border-amber-300">
+                    Vault Running Base
+                  </span>
+                  <span className="text-[11px] font-mono text-amber-950 font-bold bg-white/80 border border-amber-200 px-2 py-0.5 rounded">
+                    📅 Added / Effective: {balanceDateInput || safeRunningBalanceDate || selectedDate} {safeRunningBalanceTime ? `at ${safeRunningBalanceTime}` : ''}
+                  </span>
+                </div>
+                <p className="text-xs text-stone-800 mt-0.5 font-medium">
+                  Stored baseline cash balance in the safe vault matching your search.
+                </p>
+              </div>
+            </div>
+            <span className="text-base font-extrabold font-mono text-amber-950 shrink-0">
+              {formatPKR(safeRunningBalance)}
+            </span>
+          </div>
+        )}
 
         {safeActivities.length > 0 ? (
           <div className="space-y-2">
@@ -1734,7 +1876,7 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
               </div>
 
               {/* Particulars / Remarks */}
-              <div className="md:col-span-5">
+              <div className="md:col-span-4">
                 <label className="text-[11px] font-bold text-stone-700 block mb-1 uppercase tracking-wider">
                   Particulars / Description <span className="text-stone-400 font-normal">(Optional)</span>
                 </label>
@@ -1746,7 +1888,7 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                     type="text"
                     value={depositNotes}
                     onChange={e => setDepositNotes(e.target.value)}
-                    placeholder="e.g. 5th Kameti payout from Asif Bhai, emergency capital, etc."
+                    placeholder="e.g. 5th Kameti payout, emergency capital, etc."
                     className="w-full pl-9 pr-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-medium text-stone-900 focus:bg-white focus:border-amber-600 focus:ring-1 focus:ring-amber-600 outline-hidden transition-all"
                   />
                 </div>
@@ -1755,9 +1897,20 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                 </span>
               </div>
 
-              {/* Time and Submit */}
-              <div className="md:col-span-3 flex items-center gap-2">
-                <div className="w-24 shrink-0">
+              {/* Date, Time and Submit */}
+              <div className="md:col-span-4 flex items-center gap-2">
+                <div className="flex-1 min-w-[110px]">
+                  <label className="text-[10px] font-bold text-stone-500 block mb-1 uppercase">
+                    Date
+                  </label>
+                  <input
+                    type="date"
+                    value={depositDate}
+                    onChange={e => setDepositDate(e.target.value)}
+                    className="w-full px-2 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-mono font-bold text-stone-800"
+                  />
+                </div>
+                <div className="w-20 shrink-0">
                   <label className="text-[10px] font-bold text-stone-500 block mb-1 uppercase">
                     Time
                   </label>
@@ -1770,10 +1923,10 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                 </div>
                 <button
                   type="submit"
-                  className="flex-1 py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs h-[38px] mt-auto"
+                  className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs h-[38px] mt-auto shrink-0"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Add to Vault</span>
+                  <span>Add</span>
                 </button>
               </div>
 
@@ -1806,12 +1959,15 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                         <Icon className="w-3.5 h-3.5" />
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[11px] font-bold px-1.5 py-0.2 rounded border ${catDef.badgeClass}`}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded border ${catDef.badgeClass}`}>
                             {dep.categoryLabel}
                           </span>
-                          <span className="text-[11px] text-stone-400 font-mono">
-                            {dep.time}
+                          <span className="text-[11px] font-bold text-amber-900 bg-amber-100/90 border border-amber-300 px-1.5 py-0.5 rounded font-mono flex items-center gap-1">
+                            📅 {dep.date || selectedDate}
+                          </span>
+                          <span className="text-[11px] text-stone-500 font-mono">
+                            🕒 {dep.time}
                           </span>
                         </div>
                         {dep.notes && (

@@ -81,6 +81,8 @@ export function subscribeToVaultDeposits(onUpdate: (deposits: VaultDeposit[]) =>
 
 export interface AppGlobalSettings {
   safeRunningBalance?: number;
+  safeRunningBalanceDate?: string;
+  safeRunningBalanceTime?: string;
   safeTransferAmount?: number;
   openingCashByDate?: Record<string, number>;
   staffList?: string[];

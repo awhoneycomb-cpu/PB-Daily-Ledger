@@ -197,6 +197,9 @@ export const OpeningBalanceCard: React.FC<OpeningBalanceCardProps> = ({
             {formatPKR(expectedDrawerCash)}
           </span>
         </div>
+        <p className="text-[10px] text-stone-500 italic pt-1 border-t border-emerald-100">
+          💡 <strong>Register Till Note:</strong> Only physical cash paid from the drawer is deducted here. Online bank transfers and Safe vault disbursements do not deplete the cash drawer.
+        </p>
       </div>
     </div>
   );

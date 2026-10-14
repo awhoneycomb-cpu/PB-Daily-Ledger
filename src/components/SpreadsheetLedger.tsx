@@ -95,6 +95,9 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
     totalOut, 
     totalOpOut,
     totalTransferOut,
+    totalPhysicalOut,
+    totalOnlineOut,
+    totalSafeOut,
     netBalance, 
     staffSummary 
   } = useMemo(() => {
@@ -111,6 +114,9 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
     let sumOut = 0;
     let sumOpOut = 0;
     let sumTransferOut = 0;
+    let sumPhysicalOut = 0;
+    let sumOnlineOut = 0;
+    let sumSafeOut = 0;
 
     const staffMap = new Map<string, { name: string; items: Transaction[]; total: number; online: number; cash: number }>();
     
@@ -121,19 +127,20 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
 
     for (let i = 0; i < transactions.length; i++) {
       const t = transactions[i];
+      const amt = typeof t.amount === 'number' ? t.amount : (parseFloat(String(t.amount)) || 0);
       const isTransfer = t.isInternalTransfer || isInternalTransferTransaction(t);
 
       if (t.type === 'cash_in') {
         ins.push(t);
-        sumIn += t.amount;
+        sumIn += amt;
         const isOnline = t.paymentMode === 'online';
-        if (isOnline) sumOnline += t.amount;
+        if (isOnline) sumOnline += amt;
 
         if (isTransfer) {
           safeIns.push(t);
-          sumSafeIn += t.amount;
+          sumSafeIn += amt;
         } else {
-          sumSalesIn += t.amount;
+          sumSalesIn += amt;
           const staffName = t.salesperson || 'Counter';
           let staffEntry = staffMap.get(staffName);
           if (!staffEntry) {
@@ -141,22 +148,33 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
             staffMap.set(staffName, staffEntry);
           }
           staffEntry.items.push(t);
-          staffEntry.total += t.amount;
+          staffEntry.total += amt;
           if (isOnline) {
-            staffEntry.online += t.amount;
+            staffEntry.online += amt;
           } else {
-            staffEntry.cash += t.amount;
+            staffEntry.cash += amt;
           }
         }
       } else if (t.type === 'cash_out') {
         outs.push(t);
-        sumOut += t.amount;
+        sumOut += amt;
+        const isOnline = t.paymentMode === 'online';
+        const isFromSafe = t.transferSource === 'safe';
+
+        if (isOnline) {
+          sumOnlineOut += amt;
+        } else if (isFromSafe) {
+          sumSafeOut += amt;
+        } else {
+          sumPhysicalOut += amt;
+        }
+
         if (isTransfer) {
           transferOuts.push(t);
-          sumTransferOut += t.amount;
+          sumTransferOut += amt;
         } else {
           opOuts.push(t);
-          sumOpOut += t.amount;
+          sumOpOut += amt;
         }
       }
     }
@@ -177,6 +195,9 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
       totalOut: sumOut,
       totalOpOut: sumOpOut,
       totalTransferOut: sumTransferOut,
+      totalPhysicalOut: sumPhysicalOut,
+      totalOnlineOut: sumOnlineOut,
+      totalSafeOut: sumSafeOut,
       netBalance: sumIn - sumOut,
       staffSummary: activeStaffSummary
     };
@@ -485,22 +506,37 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
               </table>
 
               {/* Subtotal row */}
-              <div className="mt-3 pt-2.5 border-t-2 border-amber-400/80 space-y-1 text-xs">
+              <div className="mt-3 pt-2.5 border-t-2 border-amber-400/80 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between text-stone-600 font-semibold">
+                  <span>Operating Expenses & Store Payments:</span>
+                  <span className="font-mono text-stone-900 font-bold">{formatPKR(totalOpOut)}</span>
+                </div>
                 {totalTransferOut > 0 && (
-                  <div className="flex items-center justify-between text-stone-500 font-medium">
-                    <span>Operating Expenses:</span>
-                    <span className="font-mono text-stone-700">{formatPKR(totalOpOut)}</span>
+                  <div className="flex items-center justify-between text-indigo-800 font-semibold bg-indigo-50/70 border border-indigo-200/80 rounded px-2 py-1">
+                    <span className="flex items-center gap-1">
+                      <span>Day-End Safe Vault Handover:</span>
+                      <span className="text-[10px] text-indigo-600 font-normal">(Internal Drawer ➔ Safe Transfer)</span>
+                    </span>
+                    <span className="font-mono font-bold">+{formatPKR(totalTransferOut)}</span>
                   </div>
                 )}
-                {totalTransferOut > 0 && (
-                  <div className="flex items-center justify-between text-indigo-700 font-medium">
-                    <span>Safe / Bank Transfers:</span>
-                    <span className="font-mono font-semibold">{formatPKR(totalTransferOut)}</span>
+                <div className="flex flex-wrap items-center justify-between font-bold pt-1.5 border-t border-amber-200 gap-2">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="text-stone-700">
+                      Physical Drawer Out: <strong className="text-amber-800 font-mono">{formatPKR(totalPhysicalOut)}</strong>
+                    </span>
+                    {totalOnlineOut > 0 && (
+                      <>
+                        <span className="text-stone-300">|</span>
+                        <span className="text-rose-700">
+                          Online/Bank: <strong className="font-mono">{formatPKR(totalOnlineOut)}</strong>
+                        </span>
+                      </>
+                    )}
                   </div>
-                )}
-                <div className="flex items-center justify-between font-bold pt-1 border-t border-amber-200">
-                  <span className="text-stone-800">Total Outflow:</span>
-                  <span className="text-amber-800 font-mono text-sm">{formatPKR(totalOut)}</span>
+                  <div className="text-stone-900 font-mono text-sm bg-amber-100/60 border border-amber-300 px-2.5 py-0.5 rounded">
+                    Total Outflow: <span className="text-amber-900 font-bold">{formatPKR(totalOut)}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1175,18 +1211,37 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
       {/* Spreadsheet Footer: Daily Closing Balance */}
       <div className="p-4 bg-stone-100 border-t border-stone-300 flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
         <div className="flex flex-wrap items-center gap-2.5 text-stone-600">
-          <div className="flex items-center gap-1.5 bg-white border border-stone-200 px-2.5 py-1 rounded-lg">
+          <div className="flex items-center gap-1.5 bg-white border border-stone-200 px-3 py-1.5 rounded-lg shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span>Cash In:</span>
-            <strong className="text-emerald-800 font-mono font-bold">{cashInItems.length} entries</strong>
-            <span className="text-stone-400 text-[11px]">({formatPKR(totalIn)})</span>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span>Total Inflow:</span>
+                <strong className="text-emerald-800 font-mono font-bold text-xs">{formatPKR(totalIn)}</strong>
+                <span className="text-stone-400 text-[10px]">({cashInItems.length} entries)</span>
+              </div>
+              <div className="text-[10px] text-stone-500 flex items-center gap-2 mt-0.5">
+                <span>Drawer Cash: <strong className="text-emerald-800 font-mono font-semibold">{formatPKR(totalPhysicalIn)}</strong></span>
+                {totalOnline > 0 && <span>• Online: <strong className="text-rose-700 font-mono">{formatPKR(totalOnline)}</strong></span>}
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-1.5 bg-white border border-stone-200 px-2.5 py-1 rounded-lg">
+          <div className="flex items-center gap-1.5 bg-white border border-stone-200 px-3 py-1.5 rounded-lg shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-            <span>Cash Out:</span>
-            <strong className="text-amber-800 font-mono font-bold">{cashOutItems.length} entries</strong>
-            <span className="text-stone-400 text-[11px]">({formatPKR(totalOut)})</span>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span>Total Outflow:</span>
+                <strong className="text-amber-800 font-mono font-bold text-xs">{formatPKR(totalOut)}</strong>
+                <span className="text-stone-400 text-[10px]">({cashOutItems.length} entries)</span>
+              </div>
+              <div className="text-[10px] text-stone-500 flex items-center gap-2 mt-0.5 flex-wrap">
+                <span>Expenses: <strong className="text-stone-800 font-mono font-semibold">{formatPKR(totalOpOut)}</strong></span>
+                {totalTransferOut > 0 && (
+                  <span>• Safe Handover: <strong className="text-indigo-800 font-mono font-semibold">+{formatPKR(totalTransferOut)}</strong></span>
+                )}
+                {totalOnlineOut > 0 && <span>• Bank: <strong className="text-rose-700 font-mono">{formatPKR(totalOnlineOut)}</strong></span>}
+              </div>
+            </div>
           </div>
 
           <span className="text-stone-500 text-[11px] ml-1">
@@ -1195,11 +1250,18 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="text-stone-500 font-medium">Net Real-Time Cash Flow:</span>
-          <span className={`text-base font-bold font-mono px-3 py-1 rounded-lg ${
+          <div className="text-right">
+            <div className="text-[11px] text-stone-600 font-medium">
+              Drawer Till Net: <strong className={`font-mono font-bold ${totalPhysicalIn - totalPhysicalOut >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{totalPhysicalIn - totalPhysicalOut >= 0 ? '+' : ''}{formatPKR(totalPhysicalIn - totalPhysicalOut)}</strong>
+            </div>
+            <div className="text-[10px] text-stone-400">
+              Total Net (All Channels)
+            </div>
+          </div>
+          <span className={`text-base font-bold font-mono px-3 py-1 rounded-lg shadow-2xs ${
             netBalance >= 0 ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
           }`}>
-            {formatPKR(netBalance)}
+            {netBalance >= 0 ? '+' : ''}{formatPKR(netBalance)}
           </span>
         </div>
       </div>

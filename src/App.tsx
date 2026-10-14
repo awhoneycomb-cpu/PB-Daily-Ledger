@@ -178,6 +178,24 @@ export default function App() {
     }
   });
 
+  const [safeRunningBalanceDate, setSafeRunningBalanceDate] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('daily_ledger_safe_running_balance_date');
+      return saved || '';
+    } catch {
+      return '';
+    }
+  });
+
+  const [safeRunningBalanceTime, setSafeRunningBalanceTime] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('daily_ledger_safe_running_balance_time');
+      return saved || '';
+    } catch {
+      return '';
+    }
+  });
+
   const [safeTransferAmount, setSafeTransferAmount] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('daily_ledger_safe_transfer_amount');
@@ -215,12 +233,16 @@ export default function App() {
   // Sync settings when safe balance or staff changes
   const syncSettingsToCloud = (overrides?: Partial<{
     safeRunningBalance: number;
+    safeRunningBalanceDate: string;
+    safeRunningBalanceTime: string;
     safeTransferAmount: number;
     openingCashByDate: Record<string, number>;
     staffList: string[];
   }>) => {
     saveSettingsToCloud({
       safeRunningBalance,
+      safeRunningBalanceDate,
+      safeRunningBalanceTime,
       safeTransferAmount,
       openingCashByDate,
       staffList,
@@ -326,6 +348,12 @@ export default function App() {
         if (settings) {
           if (typeof settings.safeRunningBalance === 'number' && settings.safeRunningBalance > 0) {
             setSafeRunningBalance(settings.safeRunningBalance);
+          }
+          if (settings.safeRunningBalanceDate) {
+            setSafeRunningBalanceDate(settings.safeRunningBalanceDate);
+          }
+          if (settings.safeRunningBalanceTime) {
+            setSafeRunningBalanceTime(settings.safeRunningBalanceTime);
           }
           if (typeof settings.safeTransferAmount === 'number') {
             setSafeTransferAmount(settings.safeTransferAmount);
@@ -938,9 +966,53 @@ export default function App() {
     deleteVaultDepositFromCloud(id);
   };
 
+  const handleSetSafeRunningBalance = (val: number, date?: string, time?: string) => {
+    const effectiveDate = date || safeRunningBalanceDate || selectedDate || new Date().toISOString().split('T')[0];
+    const effectiveTime = time || safeRunningBalanceTime || new Date().toTimeString().slice(0, 5);
+    setSafeRunningBalance(val);
+    setSafeRunningBalanceDate(effectiveDate);
+    setSafeRunningBalanceTime(effectiveTime);
+    try {
+      localStorage.setItem('daily_ledger_safe_running_balance', String(val));
+      localStorage.setItem('daily_ledger_safe_running_balance_date', effectiveDate);
+      localStorage.setItem('daily_ledger_safe_running_balance_time', effectiveTime);
+    } catch (e) {
+      console.error(e);
+    }
+    syncSettingsToCloud({
+      safeRunningBalance: val,
+      safeRunningBalanceDate: effectiveDate,
+      safeRunningBalanceTime: effectiveTime
+    });
+  };
+
+  const handleSetSafeRunningBalanceDate = (date: string) => {
+    setSafeRunningBalanceDate(date);
+    try {
+      localStorage.setItem('daily_ledger_safe_running_balance_date', date);
+    } catch (e) {
+      console.error(e);
+    }
+    syncSettingsToCloud({ safeRunningBalanceDate: date });
+  };
+
   const handleConsolidateVaultDeposits = () => {
     setVaultDeposits([]);
     localStorage.removeItem('daily_ledger_vault_deposits');
+    const effectiveDate = selectedDate || new Date().toISOString().split('T')[0];
+    const effectiveTime = new Date().toTimeString().slice(0, 5);
+    setSafeRunningBalanceDate(effectiveDate);
+    setSafeRunningBalanceTime(effectiveTime);
+    try {
+      localStorage.setItem('daily_ledger_safe_running_balance_date', effectiveDate);
+      localStorage.setItem('daily_ledger_safe_running_balance_time', effectiveTime);
+    } catch (e) {
+      console.error(e);
+    }
+    syncSettingsToCloud({
+      safeRunningBalanceDate: effectiveDate,
+      safeRunningBalanceTime: effectiveTime
+    });
   };
 
   // Ledger Handlers
@@ -1362,7 +1434,10 @@ export default function App() {
         {/* Cash Safe & Vault Manager Area (After Closing & Direct Deposits) */}
         <CashSafeManager
           safeRunningBalance={safeRunningBalance}
-          onChangeSafeRunningBalance={setSafeRunningBalance}
+          onChangeSafeRunningBalance={handleSetSafeRunningBalance}
+          safeRunningBalanceDate={safeRunningBalanceDate}
+          safeRunningBalanceTime={safeRunningBalanceTime}
+          onChangeSafeRunningBalanceDate={handleSetSafeRunningBalanceDate}
           safeTransferAmount={safeTransferAmount}
           onChangeSafeTransferAmount={setSafeTransferAmount}
           vaultDeposits={vaultDeposits}
