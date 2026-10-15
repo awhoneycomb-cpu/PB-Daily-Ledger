@@ -625,17 +625,19 @@ export default function App() {
   const expectedPhysicalDrawer = currentDayOpeningCash + totalPhysicalCashIn - totalPhysicalCashOut;
 
   // 4. Safe (Vault) Calculations & Actions
-  const totalVaultDeposits = useMemo(() => vaultDeposits.reduce((acc, d) => acc + d.amount, 0), [vaultDeposits]);
+  const totalVaultDeposits = useMemo(() => vaultDeposits.filter(d => !d.isConsolidated).reduce((acc, d) => acc + d.amount, 0), [vaultDeposits]);
   const totalSafeCash = safeRunningBalance + safeTransferAmount + totalVaultDeposits;
 
   // Transfer from Drawer into Safe (Day-end handover)
   const handleTransferDrawerToSafe = (amount: number, reason?: string) => {
     if (amount <= 0) return;
     
-    // Credit safe running balance
-    setSafeRunningBalance(prev => prev + amount);
+    // Credit safe running balance and sync to cloud
+    const newBal = (safeRunningBalance || 0) + amount;
+    handleSetSafeRunningBalance(newBal, selectedDate);
     // Clear pending unfinalized safe transfer amount
     setSafeTransferAmount(0);
+    syncSettingsToCloud({ safeRunningBalance: newBal, safeTransferAmount: 0 });
 
     const desc = reason?.trim() || 'Day-end cash transfer from drawer to safe';
 
@@ -679,15 +681,19 @@ export default function App() {
 
     // Deduct smartly across safe funds
     if (amount <= safeRunningBalance) {
-      setSafeRunningBalance(prev => prev - amount);
+      const newBal = safeRunningBalance - amount;
+      handleSetSafeRunningBalance(newBal);
     } else {
       const remainingAfterRunning = amount - safeRunningBalance;
-      setSafeRunningBalance(0);
+      handleSetSafeRunningBalance(0);
       if (remainingAfterRunning <= safeTransferAmount) {
-        setSafeTransferAmount(prev => Math.max(0, prev - remainingAfterRunning));
+        const nextTransfer = Math.max(0, safeTransferAmount - remainingAfterRunning);
+        setSafeTransferAmount(nextTransfer);
+        syncSettingsToCloud({ safeRunningBalance: 0, safeTransferAmount: nextTransfer });
       } else {
         const remainingAfterTransfer = remainingAfterRunning - safeTransferAmount;
         setSafeTransferAmount(0);
+        syncSettingsToCloud({ safeRunningBalance: 0, safeTransferAmount: 0 });
         if (remainingAfterTransfer > 0 && vaultDeposits.length > 0) {
           setVaultDeposits(prev => {
             let rem = remainingAfterTransfer;
@@ -755,15 +761,19 @@ export default function App() {
 
     // Deduct smartly across safe funds
     if (amount <= safeRunningBalance) {
-      setSafeRunningBalance(prev => prev - amount);
+      const newBal = safeRunningBalance - amount;
+      handleSetSafeRunningBalance(newBal);
     } else {
       const remainingAfterRunning = amount - safeRunningBalance;
-      setSafeRunningBalance(0);
+      handleSetSafeRunningBalance(0);
       if (remainingAfterRunning <= safeTransferAmount) {
-        setSafeTransferAmount(prev => Math.max(0, prev - remainingAfterRunning));
+        const nextTransfer = Math.max(0, safeTransferAmount - remainingAfterRunning);
+        setSafeTransferAmount(nextTransfer);
+        syncSettingsToCloud({ safeRunningBalance: 0, safeTransferAmount: nextTransfer });
       } else {
         const remainingAfterTransfer = remainingAfterRunning - safeTransferAmount;
         setSafeTransferAmount(0);
+        syncSettingsToCloud({ safeRunningBalance: 0, safeTransferAmount: 0 });
         if (remainingAfterTransfer > 0 && vaultDeposits.length > 0) {
           setVaultDeposits(prev => {
             let rem = remainingAfterTransfer;
@@ -822,15 +832,19 @@ export default function App() {
 
     // Deduct smartly across safe funds
     if (amount <= safeRunningBalance) {
-      setSafeRunningBalance(prev => prev - amount);
+      const newBal = safeRunningBalance - amount;
+      handleSetSafeRunningBalance(newBal);
     } else {
       const remainingAfterRunning = amount - safeRunningBalance;
-      setSafeRunningBalance(0);
+      handleSetSafeRunningBalance(0);
       if (remainingAfterRunning <= safeTransferAmount) {
-        setSafeTransferAmount(prev => Math.max(0, prev - remainingAfterRunning));
+        const nextTransfer = Math.max(0, safeTransferAmount - remainingAfterRunning);
+        setSafeTransferAmount(nextTransfer);
+        syncSettingsToCloud({ safeRunningBalance: 0, safeTransferAmount: nextTransfer });
       } else {
         const remainingAfterTransfer = remainingAfterRunning - safeTransferAmount;
         setSafeTransferAmount(0);
+        syncSettingsToCloud({ safeRunningBalance: 0, safeTransferAmount: 0 });
         if (remainingAfterTransfer > 0 && vaultDeposits.length > 0) {
           setVaultDeposits(prev => {
             let rem = remainingAfterTransfer;
@@ -997,8 +1011,22 @@ export default function App() {
   };
 
   const handleConsolidateVaultDeposits = () => {
-    setVaultDeposits([]);
-    localStorage.removeItem('daily_ledger_vault_deposits');
+    // Preserve vault deposits history by marking them as consolidated instead of deleting
+    const now = Date.now();
+    setVaultDeposits(prev => {
+      const updated = prev.map(d => ({
+        ...d,
+        isConsolidated: true,
+        consolidatedAt: d.consolidatedAt || now
+      }));
+      try {
+        localStorage.setItem('daily_ledger_vault_deposits', JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      updated.forEach(d => saveVaultDepositToCloud(d));
+      return updated;
+    });
     const effectiveDate = selectedDate || new Date().toISOString().split('T')[0];
     const effectiveTime = new Date().toTimeString().slice(0, 5);
     setSafeRunningBalanceDate(effectiveDate);

@@ -55,6 +55,8 @@ export interface VaultDeposit {
   date: string; // YYYY-MM-DD
   time: string; // HH:mm
   createdAt: number;
+  isConsolidated?: boolean;
+  consolidatedAt?: number;
 }
 
 export interface DenominationState {

@@ -227,7 +227,8 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
   }, [selectedDate]);
 
   // Calculations
-  const totalVaultDeposits = vaultDeposits.reduce((acc, d) => acc + d.amount, 0);
+  const activeVaultDeposits = vaultDeposits.filter(d => !d.isConsolidated);
+  const totalVaultDeposits = activeVaultDeposits.reduce((acc, d) => acc + d.amount, 0);
   const totalSafeCash = (safeRunningBalance || 0) + (safeTransferAmount || 0) + totalVaultDeposits;
   const remainingDrawerCash = expectedDrawerCash;
 
@@ -707,6 +708,29 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
               Baseline cash stored in the vault before today&apos;s drawer transfer or new deposits.
             </p>
 
+            {/* Reconciliation breakdown if separate deposits exist */}
+            {totalVaultDeposits > 0 && (
+              <div className="bg-amber-50/90 border border-amber-300 rounded-lg p-2.5 mb-2.5 text-xs text-amber-950 flex items-center justify-between gap-2 shadow-2xs">
+                <div>
+                  <span className="font-bold flex items-center gap-1 text-amber-900">
+                    <ShieldCheck className="w-3.5 h-3.5 text-amber-700" />
+                    Total Vault Cash: {formatPKR(totalSafeCash)}
+                  </span>
+                  <span className="text-[10px] text-amber-800 block mt-0.5">
+                    Base: {formatPKR(safeRunningBalance)} + Injections: {formatPKR(totalVaultDeposits)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleConsolidateAllIntoVault}
+                  className="px-2 py-1 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white rounded text-[10px] font-bold shrink-0 transition-colors cursor-pointer shadow-2xs"
+                  title={`Merge separate injections into Safe Base so both match ${formatPKR(totalSafeCash)}`}
+                >
+                  Merge to {formatPKR(totalSafeCash)}
+                </button>
+              </div>
+            )}
+
             {/* Direct Input */}
             <div className="relative mb-2.5">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-stone-400 select-none">
@@ -759,9 +783,22 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
             {/* Quick Adjustment Chips */}
             <div>
               <span className="text-[10px] text-stone-400 font-semibold block mb-1">
-                Quick Add to Balance:
+                Quick Add / Set Balance:
               </span>
-              <div className="grid grid-cols-3 gap-1 text-[11px]">
+              <div className="grid grid-cols-4 gap-1 text-[11px]">
+                {safeRunningBalance !== totalSafeCash && totalSafeCash > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRunningInput(String(totalSafeCash));
+                      handleRunningChange(String(totalSafeCash));
+                    }}
+                    className="py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded font-bold text-amber-900 transition-colors cursor-pointer text-center truncate"
+                    title={`Set directly to Total Safe Cash (${formatPKR(totalSafeCash)})`}
+                  >
+                    Set {totalSafeCash >= 1000 ? `${Math.round(totalSafeCash/1000)}k` : totalSafeCash}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => handleQuickAddRunning(10000)}
@@ -794,7 +831,14 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                 Added: {balanceDateInput || safeRunningBalanceDate || selectedDate}
               </span>
             </div>
-            <strong className="font-mono text-stone-800 font-bold text-sm">{formatPKR(safeRunningBalance)}</strong>
+            <div className="text-right">
+              <strong className="font-mono text-stone-800 font-bold text-sm block">{formatPKR(safeRunningBalance)}</strong>
+              {totalVaultDeposits > 0 && (
+                <span className="text-[10px] text-amber-800 font-mono font-bold block">
+                  Total w/ Deposits: {formatPKR(totalSafeCash)}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1969,6 +2013,11 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                           <span className="text-[11px] text-stone-500 font-mono">
                             🕒 {dep.time}
                           </span>
+                          {dep.isConsolidated && (
+                            <span className="text-[10px] font-bold text-indigo-800 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
+                              Merged into Vault Base
+                            </span>
+                          )}
                         </div>
                         {dep.notes && (
                           <p className="text-xs font-medium text-stone-800 truncate mt-0.5">
@@ -1979,7 +2028,7 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                     </div>
 
                     <div className="flex items-center gap-3 shrink-0">
-                      <span className={`text-sm font-extrabold font-mono ${dep.amount < 0 ? 'text-blue-700' : 'text-emerald-700'}`}>
+                      <span className={`text-sm font-extrabold font-mono ${dep.isConsolidated ? 'text-stone-500 line-through' : dep.amount < 0 ? 'text-blue-700' : 'text-emerald-700'}`}>
                         {dep.amount < 0 ? '-' : '+'}{formatPKR(Math.abs(dep.amount))}
                       </span>
                       <button
@@ -1989,7 +2038,7 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                           onShowToast(`Removed ${dep.categoryLabel} deposit (${formatPKR(dep.amount)})`, 'info');
                         }}
                         className="text-stone-400 hover:text-rose-600 p-1 rounded hover:bg-rose-50 transition-colors cursor-pointer"
-                        title="Delete this vault deposit"
+                        title="Delete this vault deposit entry"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
