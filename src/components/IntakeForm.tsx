@@ -177,9 +177,8 @@ export const IntakeForm: React.FC<IntakeFormProps> = ({
       setIsExpenseRefund(false);
     } else {
       const isSafeToIndividual = outSource === 'safe' || (mainCategory === 'expenses' && category.toLowerCase().includes('safe transfer to individual'));
-      const isDrawerToSafe = !isSafeToIndividual && (category.includes('Transfer to Safe') || category.includes('Drawer ➔ Safe'));
       const isBankDeposit = !isSafeToIndividual && (category.includes('Bank Deposit') || outSource === 'bank');
-      const isTransfer = isSafeToIndividual || isDrawerToSafe || isBankDeposit || category.includes('Internal Transfer');
+      const isTransfer = isSafeToIndividual || isBankDeposit || category.includes('Internal Transfer');
       const targetDate = entryDate || selectedDate;
       const cleanReceipt = receiptNumber.trim() || undefined;
       const cleanParty = partyName.trim() || undefined;
@@ -239,7 +238,7 @@ export const IntakeForm: React.FC<IntakeFormProps> = ({
           biltyNumber: cleanReceipt,
           verified,
           isInternalTransfer: isTransfer,
-          transferDestination: isDrawerToSafe ? 'safe' : isBankDeposit ? 'bank' : undefined,
+          transferDestination: isBankDeposit ? 'bank' : undefined,
           transferSource: isTransfer ? 'drawer' : undefined
         });
       }
@@ -1006,9 +1005,6 @@ export const IntakeForm: React.FC<IntakeFormProps> = ({
                     if (nextCat.includes('Safe Transfer to Individual')) {
                       setOutSource('safe');
                       setPaymentMode('online');
-                    } else if (nextCat.includes('Transfer to Safe')) {
-                      setOutSource('drawer');
-                      setPaymentMode('cash');
                     }
                   }}
                   className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-semibold text-stone-800 focus:bg-white focus:border-amber-600 outline-hidden"

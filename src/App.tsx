@@ -11,7 +11,7 @@ import { StartNewDayModal } from './components/StartNewDayModal';
 import { NotificationToast, ToastMessage } from './components/NotificationToast';
 import { DataRecoveryModal } from './components/DataRecoveryModal';
 import { Calendar, Database, AlertCircle, RefreshCw, Eye } from 'lucide-react';
-import { Transaction, VaultDeposit, isInternalTransferTransaction, getMainCashOutCategory } from './types';
+import { Transaction, VaultDeposit, isInternalTransferTransaction, isDrawerToSafeTransfer, getMainCashOutCategory } from './types';
 import { INITIAL_STAFF_COUNTERS } from './data/sampleLedger';
 import { exportToExcel } from './utils/exportSpreadsheet';
 import {
@@ -219,6 +219,17 @@ export default function App() {
     return [];
   });
 
+  // Daily Day-End Drawer to Safe Handovers (Kept strictly outside Cash Out / Expenses)
+  const [dailyDrawerHandovers, setDailyDrawerHandovers] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem('daily_ledger_drawer_handovers');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return {};
+  });
+
   // Modal and Toast States
   const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
   const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState<boolean>(false);
@@ -238,6 +249,7 @@ export default function App() {
     safeTransferAmount: number;
     openingCashByDate: Record<string, number>;
     staffList: string[];
+    dailyDrawerHandovers: Record<string, number>;
   }>) => {
     saveSettingsToCloud({
       safeRunningBalance,
@@ -246,6 +258,7 @@ export default function App() {
       safeTransferAmount,
       openingCashByDate,
       staffList,
+      dailyDrawerHandovers,
       ...overrides
     }).catch(console.error);
   };
@@ -364,6 +377,9 @@ export default function App() {
           if (Array.isArray(settings.staffList) && settings.staffList.length > 0) {
             setStaffList(settings.staffList);
           }
+          if (settings.dailyDrawerHandovers && typeof settings.dailyDrawerHandovers === 'object') {
+            setDailyDrawerHandovers(prev => ({ ...prev, ...settings.dailyDrawerHandovers }));
+          }
         }
       }, (err) => {
         console.error('Settings sync error:', err);
@@ -435,6 +451,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('daily_ledger_opening_cash_by_date', JSON.stringify(openingCashByDate));
   }, [openingCashByDate]);
+
+  useEffect(() => {
+    localStorage.setItem('daily_ledger_drawer_handovers', JSON.stringify(dailyDrawerHandovers));
+  }, [dailyDrawerHandovers]);
 
   const currentDayOpeningCash = openingCashByDate[selectedDate] !== undefined 
     ? openingCashByDate[selectedDate] 
@@ -545,17 +565,19 @@ export default function App() {
 
       // 4. Transaction Type
       if (filters.type === 'cash_in' && t.type !== 'cash_in') return false;
-      if (filters.type === 'cash_out' && t.type !== 'cash_out') return false;
+      if (filters.type === 'cash_out') {
+        if (t.type !== 'cash_out' || isDrawerToSafeTransfer(t)) return false;
+      }
       if (filters.type === 'expenses') {
-        if (t.type !== 'cash_out') return false;
+        if (t.type !== 'cash_out' || isDrawerToSafeTransfer(t)) return false;
         if (getMainCashOutCategory(t) !== 'expenses') return false;
       }
       if (filters.type === 'vendor_payments') {
-        if (t.type !== 'cash_out') return false;
+        if (t.type !== 'cash_out' || isDrawerToSafeTransfer(t)) return false;
         if (getMainCashOutCategory(t) !== 'vendor_payments') return false;
       }
       if (filters.type === 'market_payments') {
-        if (t.type !== 'cash_out') return false;
+        if (t.type !== 'cash_out' || isDrawerToSafeTransfer(t)) return false;
         if (getMainCashOutCategory(t) !== 'market_payments') return false;
       }
       if (filters.type === 'online' && (t.type !== 'cash_in' || t.paymentMode !== 'online')) return false;
@@ -603,8 +625,15 @@ export default function App() {
           physicalIn += numAmount;
         }
       } else if (t.type === 'cash_out') {
+        // CRITICAL BUSINESS RULE:
+        // Day-end safe vault handovers are internal movements into vault, NOT operating expenses!
+        // They must NEVER be treated as cash out / expenses, and must NEVER cause balance to go negative.
+        if (isDrawerToSafeTransfer(t)) {
+          continue;
+        }
+
         outCount++;
-        // Physical cash actually leaving the register drawer:
+        // Physical cash actually leaving the register drawer as expense:
         // Must be cash, and must NOT be a direct outflow from the safe vault (like safe-to-bank)
         if (t.paymentMode !== 'online' && t.transferSource !== 'safe') {
           physicalOut += numAmount;
@@ -621,14 +650,29 @@ export default function App() {
   }, [transactions, selectedDate]);
 
   // 3. Theoretical Physical Cash In Drawer (The Live Cash Register Value for the active day):
-  // Formula: Morning Opening Float + Physical Cash Received in Drawer - Physical Cash Disbursed from Drawer
+  // Formula: Morning Opening Float + Physical Cash Received in Drawer - Physical Cash Disbursed for Expenses
   const expectedPhysicalDrawer = currentDayOpeningCash + totalPhysicalCashIn - totalPhysicalCashOut;
+
+  // Day-End Safe Handover transferred from drawer into safe today (Internal Vault Movement - NOT an expense)
+  const todayDrawerToSafeHandover = useMemo(() => {
+    const fromSettings = dailyDrawerHandovers[selectedDate] || 0;
+    const fromTx = transactions
+      .filter(t => (t.date || '').trim() === selectedDate.trim() && isDrawerToSafeTransfer(t))
+      .reduce((sum, t) => sum + (typeof t.amount === 'number' ? t.amount : (parseFloat(String(t.amount)) || 0)), 0);
+    return fromSettings || fromTx;
+  }, [dailyDrawerHandovers, transactions, selectedDate]);
+
+  // Remaining physical cash in register drawer after evening safe handover
+  const remainingDrawerCash = Math.max(0, expectedPhysicalDrawer - todayDrawerToSafeHandover);
 
   // 4. Safe (Vault) Calculations & Actions
   const totalVaultDeposits = useMemo(() => vaultDeposits.filter(d => !d.isConsolidated).reduce((acc, d) => acc + d.amount, 0), [vaultDeposits]);
   const totalSafeCash = safeRunningBalance + safeTransferAmount + totalVaultDeposits;
 
   // Transfer from Drawer into Safe (Day-end handover)
+  // CRITICAL BUSINESS RULE:
+  // Day-end safe vault handovers are internal movements into vault, NEVER operating expenses or cash out!
+  // They must NEVER be added under cash out, and must NEVER cause balance to go negative.
   const handleTransferDrawerToSafe = (amount: number, reason?: string) => {
     if (amount <= 0) return;
     
@@ -637,28 +681,20 @@ export default function App() {
     handleSetSafeRunningBalance(newBal, selectedDate);
     // Clear pending unfinalized safe transfer amount
     setSafeTransferAmount(0);
-    syncSettingsToCloud({ safeRunningBalance: newBal, safeTransferAmount: 0 });
 
-    const desc = reason?.trim() || 'Day-end cash transfer from drawer to safe';
-
-    const newTx: Omit<Transaction, 'id' | 'createdAt'> = {
-      date: selectedDate,
-      time: new Date().toTimeString().slice(0, 5),
-      type: 'cash_out',
-      amount,
-      paymentMode: 'cash',
-      isInternalTransfer: true,
-      transferSource: 'drawer',
-      transferDestination: 'safe',
-      category: 'Internal Transfer (Drawer ➔ Safe)',
-      description: desc,
-      salesperson: 'Drawer ➔ Safe',
-      verified: true,
-      notes: 'Evening cash handover from cash register drawer into safe vault.'
+    const updatedHandovers = {
+      ...dailyDrawerHandovers,
+      [selectedDate]: (dailyDrawerHandovers[selectedDate] || 0) + amount
     };
+    setDailyDrawerHandovers(updatedHandovers);
 
-    handleAddTransaction(newTx, true /* skipSafeAdjustment to avoid double-crediting */);
-    showToast(`Transferred Rs. ${amount.toLocaleString()} to Safe! Cash register updated.`, 'success');
+    syncSettingsToCloud({ 
+      safeRunningBalance: newBal, 
+      safeTransferAmount: 0,
+      dailyDrawerHandovers: updatedHandovers
+    });
+
+    showToast(`Transferred Rs. ${amount.toLocaleString()} into Safe Vault! Cash drawer updated.`, 'success');
   };
 
   const handleCommitTransferToSafe = () => {
@@ -1483,6 +1519,7 @@ export default function App() {
           onTransferSafeToIndividual={handleTransferSafeToIndividual}
           staffList={allStaffOptions}
           transactions={transactions}
+          dailyDrawerHandovers={dailyDrawerHandovers}
           onDeleteTransaction={handleDeleteTransaction}
           onShowToast={showToast}
         />

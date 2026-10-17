@@ -48,6 +48,7 @@ interface CashSafeManagerProps {
   onTransferSafeToIndividual?: (amount: number, recipient: string, reason: string, receiptNumber?: string, notes?: string) => void;
   staffList?: string[];
   transactions?: Transaction[];
+  dailyDrawerHandovers?: Record<string, number>;
   onDeleteTransaction?: (id: string) => void;
   onShowToast: (msg: string, type?: 'success' | 'info' | 'error') => void;
 }
@@ -141,6 +142,7 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
   onTransferSafeToIndividual,
   staffList = [],
   transactions = [],
+  dailyDrawerHandovers = {},
   onDeleteTransaction,
   onShowToast
 }) => {
@@ -544,8 +546,7 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
 
   // Filter all transfers in/out of the safe for the activity log, with search support
   const safeActivities = React.useMemo(() => {
-    if (!transactions) return [];
-    let list = transactions.filter(t => 
+    let list = (transactions || []).filter(t => 
       t.isInternalTransfer ||
       t.transferSource === 'safe' ||
       t.transferDestination === 'safe' ||
@@ -564,6 +565,35 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
       ))
     );
 
+    // Also include daily drawer handovers from settings (which are safely kept out of Cash Out / Expenses)
+    if (dailyDrawerHandovers) {
+      Object.entries(dailyDrawerHandovers).forEach(([date, amt]) => {
+        if (amt > 0) {
+          const alreadyPresent = list.some(t => t.date === date && t.amount === amt && t.transferDestination === 'safe');
+          if (!alreadyPresent) {
+            list.push({
+              id: `handover_${date}`,
+              date,
+              time: '20:00',
+              type: 'cash_in',
+              amount: amt,
+              description: 'Day-End Cash Handover to Safe',
+              category: 'Internal Transfer (Drawer ➔ Safe)',
+              isInternalTransfer: true,
+              transferSource: 'drawer',
+              transferDestination: 'safe',
+              salesperson: 'Drawer ➔ Safe',
+              createdAt: new Date(date).getTime() || 0,
+              verified: true,
+              notes: 'Evening cash handover into safe vault (Stored in Vault; not an expense).'
+            });
+          }
+        }
+      });
+    }
+
+    list.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.time || '').localeCompare(a.time || ''));
+
     if (safeSearchQuery.trim()) {
       const q = safeSearchQuery.trim().toLowerCase().replace(/,/g, '');
       list = list.filter(t => {
@@ -579,7 +609,7 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
     }
 
     return list;
-  }, [transactions, safeSearchQuery]);
+  }, [transactions, dailyDrawerHandovers, safeSearchQuery]);
 
   // Finalize / Commit transfer into safe balance
   const handleFinalizeTransfer = () => {
@@ -1012,6 +1042,10 @@ export const CashSafeManager: React.FC<CashSafeManagerProps> = ({
                   <ArrowDownToLine className="w-3.5 h-3.5" />
                   <span>Transfer to Safe Now {transferInput && parseFloat(transferInput) > 0 ? `(${formatPKR(parseFloat(transferInput) || 0)})` : ''}</span>
                 </button>
+
+                <p className="mt-2 text-[10px] text-emerald-800 bg-emerald-50/80 border border-emerald-200/80 rounded-lg p-2 leading-relaxed">
+                  🛡️ <strong>Safe Vault Notice:</strong> Evening drawer handovers are stored directly in your Vault balance. They are kept strictly separate from Cash Out / Operating Expenses so your business expenses stay accurate and never cause a negative balance.
+                </p>
               </div>
             ) : activeTransferDirection === 'safe_to_drawer' ? (
               /* SAFE TO DRAWER (Replenish Float / Change) */

@@ -38,7 +38,6 @@ export const EXPENSE_CATEGORIES = [
   'Fuel & Travel',
   'Utilities & Maintenance',
   'Safe Transfer to Individual',
-  'Transfer to Safe (Vault)',
   'Bank Deposit (From Drawer)',
   'Miscellaneous'
 ];

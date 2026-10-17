@@ -31,7 +31,7 @@ import {
   Briefcase,
   Pencil
 } from 'lucide-react';
-import { Transaction, isInternalTransferTransaction, getMainCashOutCategory } from '../types';
+import { Transaction, isInternalTransferTransaction, isDrawerToSafeTransfer, getMainCashOutCategory } from '../types';
 import { formatPKR, exportToExcel, exportToCSV } from '../utils/exportSpreadsheet';
 import { EditTransactionModal } from './EditTransactionModal';
 
@@ -156,6 +156,15 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
           }
         }
       } else if (t.type === 'cash_out') {
+        const isDrawerToSafe = isDrawerToSafeTransfer(t);
+        // CRITICAL: Day-end safe vault handovers are internal movements of cash into vault.
+        // They must NOT be treated as cash out / expenses, and must NOT reduce net balance to negative.
+        if (isDrawerToSafe) {
+          transferOuts.push(t);
+          sumTransferOut += amt;
+          continue;
+        }
+
         outs.push(t);
         sumOut += amt;
         const isOnline = t.paymentMode === 'online';
@@ -512,18 +521,19 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                   <span className="font-mono text-stone-900 font-bold">{formatPKR(totalOpOut)}</span>
                 </div>
                 {totalTransferOut > 0 && (
-                  <div className="flex items-center justify-between text-indigo-800 font-semibold bg-indigo-50/70 border border-indigo-200/80 rounded px-2 py-1">
-                    <span className="flex items-center gap-1">
+                  <div className="flex items-center justify-between text-indigo-900 font-semibold bg-indigo-50/90 border border-indigo-200 rounded-lg px-2.5 py-1.5 shadow-2xs">
+                    <span className="flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-indigo-700" />
                       <span>Day-End Safe Vault Handover:</span>
-                      <span className="text-[10px] text-indigo-600 font-normal">(Internal Drawer ➔ Safe Transfer)</span>
+                      <span className="text-[10px] text-indigo-700 font-normal">(Stored in Safe Vault • Retained, Not an Expense)</span>
                     </span>
-                    <span className="font-mono font-bold">+{formatPKR(totalTransferOut)}</span>
+                    <span className="font-mono font-bold text-indigo-950">{formatPKR(totalTransferOut)}</span>
                   </div>
                 )}
                 <div className="flex flex-wrap items-center justify-between font-bold pt-1.5 border-t border-amber-200 gap-2">
                   <div className="flex items-center gap-2.5 flex-wrap">
                     <span className="text-stone-700">
-                      Physical Drawer Out: <strong className="text-amber-800 font-mono">{formatPKR(totalPhysicalOut)}</strong>
+                      Drawer Expenses Paid: <strong className="text-amber-800 font-mono">{formatPKR(totalPhysicalOut)}</strong>
                     </span>
                     {totalOnlineOut > 0 && (
                       <>
@@ -535,7 +545,7 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
                     )}
                   </div>
                   <div className="text-stone-900 font-mono text-sm bg-amber-100/60 border border-amber-300 px-2.5 py-0.5 rounded">
-                    Total Outflow: <span className="text-amber-900 font-bold">{formatPKR(totalOut)}</span>
+                    Total Expenses: <span className="text-amber-900 font-bold">{formatPKR(totalOut)}</span>
                   </div>
                 </div>
               </div>
@@ -1230,14 +1240,14 @@ export const SpreadsheetLedger: React.FC<SpreadsheetLedgerProps> = ({
             <span className="w-2 h-2 rounded-full bg-amber-500"></span>
             <div>
               <div className="flex items-center gap-1.5">
-                <span>Total Outflow:</span>
+                <span>Total Expenses:</span>
                 <strong className="text-amber-800 font-mono font-bold text-xs">{formatPKR(totalOut)}</strong>
-                <span className="text-stone-400 text-[10px]">({cashOutItems.length} entries)</span>
+                <span className="text-stone-400 text-[10px]">({cashOutItems.length} vouchers)</span>
               </div>
               <div className="text-[10px] text-stone-500 flex items-center gap-2 mt-0.5 flex-wrap">
                 <span>Expenses: <strong className="text-stone-800 font-mono font-semibold">{formatPKR(totalOpOut)}</strong></span>
                 {totalTransferOut > 0 && (
-                  <span>• Safe Handover: <strong className="text-indigo-800 font-mono font-semibold">+{formatPKR(totalTransferOut)}</strong></span>
+                  <span className="text-indigo-800 font-medium">• Stored in Safe: <strong className="font-mono font-semibold">{formatPKR(totalTransferOut)}</strong> (retained in vault)</span>
                 )}
                 {totalOnlineOut > 0 && <span>• Bank: <strong className="text-rose-700 font-mono">{formatPKR(totalOnlineOut)}</strong></span>}
               </div>

@@ -23,7 +23,7 @@ import {
   Layers,
   CalendarDays
 } from 'lucide-react';
-import { Transaction } from '../types';
+import { Transaction, isDrawerToSafeTransfer } from '../types';
 import { formatPKR } from '../utils/exportSpreadsheet';
 
 interface CashFlowTrendChartProps {
@@ -86,7 +86,10 @@ export const CashFlowTrendChart: React.FC<CashFlowTrendChartProps> = ({
       if (t.type === 'cash_in') {
         entry.cashIn += t.amount;
       } else if (t.type === 'cash_out') {
-        entry.cashOut += t.amount;
+        // Safe vault handovers are internal cash movements, NOT expenses
+        if (!isDrawerToSafeTransfer(t)) {
+          entry.cashOut += t.amount;
+        }
       }
       entry.net = entry.cashIn - entry.cashOut;
     }

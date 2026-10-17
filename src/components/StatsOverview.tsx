@@ -13,7 +13,7 @@ import {
   Store,
   Briefcase 
 } from 'lucide-react';
-import { Transaction, getMainCashOutCategory } from '../types';
+import { Transaction, getMainCashOutCategory, isDrawerToSafeTransfer } from '../types';
 import { formatPKR } from '../utils/exportSpreadsheet';
 import { CashFlowTrendChart } from './CashFlowTrendChart';
 
@@ -120,6 +120,14 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
           }
         }
       } else if (t.type === 'cash_out') {
+        const isDrawerToSafe = isDrawerToSafeTransfer(t);
+        // CRITICAL: Day-end safe vault handovers are internal movements of cash into vault.
+        // They must NOT be treated as cash out / expenses, and must NOT reduce net balance to negative.
+        if (isDrawerToSafe) {
+          safeHandovers += amt;
+          continue;
+        }
+
         outs.push(t);
         if (isTransfer) {
           if (t.transferDestination === 'bank' || t.description.toLowerCase().includes('bank')) {

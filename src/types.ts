@@ -87,6 +87,34 @@ export const isRefundTransaction = (t: Transaction): boolean => {
   return false;
 };
 
+/**
+ * Checks if a transaction is a Day-End Safe Vault Handover (Drawer -> Safe).
+ * CRITICAL BUSINESS RULE:
+ * Day-end safe vault handovers are internal movements of cash into the business vault,
+ * NOT operating expenses or disbursements. They must NEVER be treated as "cash out" / expenses,
+ * and must NEVER reduce net operating balance to negative.
+ */
+export const isDrawerToSafeTransfer = (t: Transaction): boolean => {
+  if (t.transferDestination === 'safe') return true;
+  const cat = (t.category || '').toLowerCase();
+  if (
+    cat.includes('drawer ➔ safe') || 
+    cat.includes('transfer to safe') || 
+    cat.includes('drawer to safe') || 
+    cat.includes('handover to safe') ||
+    cat.includes('sales transfer to safe')
+  ) return true;
+  const desc = (t.description || '').toLowerCase();
+  if (
+    desc.includes('handover to safe') || 
+    desc.includes('sales transfer to safe') || 
+    desc.includes('drawer to safe') || 
+    desc.includes('transfer to safe') ||
+    desc.includes('drawer ➔ safe')
+  ) return true;
+  return false;
+};
+
 export const isInternalTransferTransaction = (t: Transaction): boolean => {
   // If explicitly flagged as NOT an internal transfer, respect it immediately:
   if (t.isInternalTransfer === false) return false;

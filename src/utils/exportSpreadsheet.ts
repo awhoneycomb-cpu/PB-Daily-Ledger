@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { Transaction, getMainCashOutCategory } from '../types';
+import { Transaction, getMainCashOutCategory, isDrawerToSafeTransfer } from '../types';
 
 export function formatPKR(val: number): string {
   return new Intl.NumberFormat('en-PK', {
@@ -71,7 +71,8 @@ export function exportToExcel(
 
   // Tab 2: Two-Page Ledger Format (Like the physical book)
   const cashInList = transactions.filter(t => t.type === 'cash_in');
-  const cashOutList = transactions.filter(t => t.type === 'cash_out');
+  // Day-end safe vault handovers are internal movements into vault, NEVER cash out / expenses
+  const cashOutList = transactions.filter(t => t.type === 'cash_out' && !isDrawerToSafeTransfer(t));
 
   const maxRows = Math.max(cashInList.length, cashOutList.length);
   const ledgerRows = [];
@@ -109,13 +110,13 @@ export function exportToExcel(
     });
   }
 
-  // Calculate totals
+  // Calculate totals (excluding safe handovers from expenses)
   const totalCashIn = transactions.filter(t => t.type === 'cash_in').reduce((sum, t) => sum + t.amount, 0);
   const totalOnlineIn = transactions.filter(t => t.type === 'cash_in' && t.paymentMode === 'online').reduce((sum, t) => sum + t.amount, 0);
   const totalPhysicalCashIn = totalCashIn - totalOnlineIn;
 
-  const totalCashOut = transactions.filter(t => t.type === 'cash_out').reduce((sum, t) => sum + t.amount, 0);
-  const totalPhysicalCashOut = transactions.filter(t => t.type === 'cash_out' && t.paymentMode !== 'online').reduce((sum, t) => sum + t.amount, 0);
+  const totalCashOut = transactions.filter(t => t.type === 'cash_out' && !isDrawerToSafeTransfer(t)).reduce((sum, t) => sum + t.amount, 0);
+  const totalPhysicalCashOut = transactions.filter(t => t.type === 'cash_out' && !isDrawerToSafeTransfer(t) && t.paymentMode !== 'online').reduce((sum, t) => sum + t.amount, 0);
   const totalOnlineCashOut = totalCashOut - totalPhysicalCashOut;
 
   const netPhysicalDrawer = openingCash + totalPhysicalCashIn - totalPhysicalCashOut;

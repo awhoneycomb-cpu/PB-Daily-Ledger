@@ -87,6 +87,7 @@ export interface AppGlobalSettings {
   openingCashByDate?: Record<string, number>;
   staffList?: string[];
   bankName?: string;
+  dailyDrawerHandovers?: Record<string, number>;
 }
 
 export function subscribeToSettings(onUpdate: (settings: AppGlobalSettings) => void, onError?: (err: any) => void) {
